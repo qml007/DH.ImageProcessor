@@ -349,6 +349,45 @@ export async function deskewImage(dataUrl: string): Promise<DeskewResult> {
   }
 }
 
+const MIN_MANUAL_SKEW = 0.01
+
+const hasTransparency = (image: HTMLImageElement): boolean => {
+  const scale = Math.min(1, ANALYSIS_MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight))
+  const width = Math.max(1, Math.round(image.naturalWidth * scale))
+  const height = Math.max(1, Math.round(image.naturalHeight * scale))
+
+  const canvas = createCanvas(width, height)
+  const context = getContext(canvas)
+  context.drawImage(image, 0, 0, width, height)
+
+  const { data } = context.getImageData(0, 0, width, height)
+  let transparent = 0
+
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 250) transparent += 1
+  }
+
+  return transparent / (width * height) > 0.01
+}
+
+export async function deskewImageByLineAngle(
+  dataUrl: string,
+  lineAngle: number
+): Promise<DeskewResult> {
+  const image = await loadImage(dataUrl)
+  const angle = -lineAngle
+
+  if (!Number.isFinite(angle) || Math.abs(angle) < MIN_MANUAL_SKEW) {
+    return { angle, changed: false, dataUrl }
+  }
+
+  return {
+    angle,
+    changed: true,
+    dataUrl: rotateByAngle(image, angle, hasTransparency(image))
+  }
+}
+
 export interface SampledColor {
   r: number
   g: number

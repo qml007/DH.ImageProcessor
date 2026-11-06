@@ -1,6 +1,6 @@
-# test2
+# DH.ImageProcessor
 
-An Electron application with Vue and TypeScript
+基于 Vue 和 TypeScript 的 Electron 应用，用于批量处理图像文件
 
 ## Recommended IDE Setup
 

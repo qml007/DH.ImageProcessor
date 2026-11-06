@@ -6,6 +6,7 @@ import { formatSize } from '../utils/format'
 import {
   rotateImage,
   deskewImage,
+  deskewImageByLineAngle,
   createPixelSampler,
   samplePixel,
   removeSimilarColor,
@@ -17,6 +18,7 @@ import {
 
 const COLOR_TOLERANCE = 60
 const MIN_SELECTION_PX = 4
+const MIN_LINE_PX = 10
 
 interface EditAction {
   key: string
@@ -74,6 +76,13 @@ const actions: EditAction[] = [
     icon: ['M4 20 20 4', 'M4 4h6', 'M20 20h-6']
   },
   {
+    key: 'manual-correct',
+    label: '手动校正倾斜角',
+    desc: '在图片上拖出一条直线，按该线倾斜角摆正图片',
+    variant: 'default',
+    icon: ['M4 20 20 4', 'M4 20h5', 'M4 20v-5']
+  },
+  {
     key: 'remove-color',
     label: '去色',
     desc: '吸取颜色，将相近像素置为白色',
@@ -129,6 +138,11 @@ const dragging = ref(false)
 let dragOrigin: { x: number; y: number } | null = null
 let dragStartClient: { x: number; y: number } | null = null
 
+const manualMode = ref(false)
+const lineDrawing = ref(false)
+const linePoints = ref<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+let lineOrigin: { x: number; y: number } | null = null
+
 const hasSelection = computed(() => {
   const current = selection.value
   return !!current && current.w > 0 && current.h > 0
@@ -156,6 +170,35 @@ const selectionSize = computed(() => {
 const clearSelection = (): void => {
   selection.value = null
 }
+
+const lineStyle = computed(() => {
+  const current = linePoints.value
+  if (!current) return null
+
+  return {
+    x1: current.x1 * 100,
+    y1: current.y1 * 100,
+    x2: current.x2 * 100,
+    y2: current.y2 * 100
+  }
+})
+
+const lineAngle = computed(() => {
+  const current = linePoints.value
+  const img = imgRef.value
+  if (!current || !img) return 0
+
+  const dx = (current.x2 - current.x1) * img.naturalWidth
+  const dy = (current.y2 - current.y1) * img.naturalHeight
+  if (!dx && !dy) return 0
+
+  const raw = (Math.atan2(dy, dx) * 180) / Math.PI
+  if (raw > 90) return raw - 180
+  if (raw <= -90) return raw + 180
+  return raw
+})
+
+const lineAngleText = computed(() => `${Math.abs(lineAngle.value).toFixed(2)}°`)
 
 const pointInFrame = (event: MouseEvent): { x: number; y: number } | null => {
   const frame = frameRef.value
@@ -199,6 +242,11 @@ const endSelect = (event: MouseEvent): void => {
 }
 
 const startSelect = (event: MouseEvent): void => {
+  if (manualMode.value) {
+    startLine(event)
+    return
+  }
+
   if (picking.value || processing.value || event.button !== 0) return
 
   const point = pointInFrame(event)
@@ -212,6 +260,115 @@ const startSelect = (event: MouseEvent): void => {
 
   window.addEventListener('mousemove', updateSelection)
   window.addEventListener('mouseup', endSelect)
+}
+
+const updateLine = (event: MouseEvent): void => {
+  const origin = lineOrigin
+  const point = pointInFrame(event)
+  if (!origin || !point) return
+
+  linePoints.value = { x1: origin.x, y1: origin.y, x2: point.x, y2: point.y }
+}
+
+const endLine = (event: MouseEvent): void => {
+  window.removeEventListener('mousemove', updateLine)
+  window.removeEventListener('mouseup', endLine)
+
+  updateLine(event)
+  lineDrawing.value = false
+  lineOrigin = null
+
+  const frame = frameRef.value
+  const current = linePoints.value
+  if (!frame || !current) {
+    linePoints.value = null
+    return
+  }
+
+  const rect = frame.getBoundingClientRect()
+  const length = Math.hypot(
+    (current.x2 - current.x1) * rect.width,
+    (current.y2 - current.y1) * rect.height
+  )
+
+  if (length < MIN_LINE_PX) {
+    linePoints.value = null
+    flashNotice('所画直线太短，请按住鼠标左键拖出一条更长的直线')
+    return
+  }
+
+  void applyManualLine(lineAngle.value)
+}
+
+const applyManualLine = async (angle: number): Promise<void> => {
+  const target = image.value
+  if (!target || processing.value) return
+
+  processing.value = true
+  try {
+    const result = await deskewImageByLineAngle(target.dataUrl, angle)
+
+    if (!result.changed) {
+      cancelManual()
+      flashNotice(`检测到倾斜角 ${Math.abs(angle).toFixed(2)}°，接近 0°，无需校正`)
+      return
+    }
+
+    const correction = Math.abs(angle).toFixed(2)
+    const rotation = Number(((target.rotation + result.angle + 360) % 360).toFixed(1))
+    const done = await persistState(target, result.dataUrl, rotation, `手动校正倾斜 ${correction}°`)
+
+    cancelManual()
+    flashNotice(
+      done
+        ? `已按所画直线校正倾斜 ${correction}°，结果已保存到临时文件夹`
+        : '写入临时文件夹失败，校正结果未生效'
+    )
+  } catch (error) {
+    console.error(error)
+    cancelManual()
+    flashNotice('手动校正失败，请稍后重试')
+  } finally {
+    processing.value = false
+  }
+}
+
+const cancelManual = (): void => {
+  manualMode.value = false
+  lineDrawing.value = false
+  linePoints.value = null
+  lineOrigin = null
+  window.removeEventListener('mousemove', updateLine)
+  window.removeEventListener('mouseup', endLine)
+}
+
+const startLine = (event: MouseEvent): void => {
+  if (processing.value || event.button !== 0) return
+
+  const point = pointInFrame(event)
+  if (!point) return
+
+  event.preventDefault()
+  lineOrigin = point
+  lineDrawing.value = true
+  linePoints.value = { x1: point.x, y1: point.y, x2: point.x, y2: point.y }
+
+  window.addEventListener('mousemove', updateLine)
+  window.addEventListener('mouseup', endLine)
+}
+
+const toggleManual = (): void => {
+  if (processing.value) return
+
+  if (manualMode.value) {
+    cancelManual()
+    return
+  }
+
+  if (picking.value) cancelPick()
+  clearSelection()
+  manualMode.value = true
+  linePoints.value = null
 }
 
 const canUndo = computed(() => (image.value ? image.value.historyIndex > 0 : false))
@@ -399,7 +556,8 @@ const handleKeydown = (event: KeyboardEvent): void => {
   }
 
   if (event.key === 'Escape') {
-    if (picking.value) cancelPick()
+    if (manualMode.value) cancelManual()
+    else if (picking.value) cancelPick()
     else if (hasSelection.value) clearSelection()
     return
   }
@@ -425,19 +583,24 @@ onMounted(() => window.addEventListener('keydown', handleKeydown))
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   stopDragListeners()
+  cancelManual()
 })
 
 watch(
   () => route.params.id,
   () => {
     if (picking.value) cancelPick()
+    if (manualMode.value) cancelManual()
     clearSelection()
   }
 )
 
 watch(
   () => image.value?.dataUrl,
-  () => clearSelection()
+  () => {
+    clearSelection()
+    if (manualMode.value) cancelManual()
+  }
 )
 
 const goBack = (): void => {
@@ -690,6 +853,8 @@ const applyCenterSelection = async (): Promise<void> => {
 const isActionDisabled = (key: string): boolean => {
   if (processing.value) return true
 
+  if (manualMode.value && key !== 'manual-correct') return true
+
   if (key === 'discard' || key === 'keep' || key === 'keep-center') {
     return picking.value || !hasSelection.value
   }
@@ -698,6 +863,10 @@ const isActionDisabled = (key: string): boolean => {
 }
 
 const actionDesc = (action: EditAction): string => {
+  if (action.key === 'manual-correct') {
+    return manualMode.value ? '在图片上按住左键拖出直线，松开即校正' : action.desc
+  }
+
   if (action.key !== 'discard' && action.key !== 'keep' && action.key !== 'keep-center') {
     return action.desc
   }
@@ -719,6 +888,11 @@ const handleAction = (action: EditAction): void => {
 
   if (action.key === 'auto-correct') {
     void autoDeskew()
+    return
+  }
+
+  if (action.key === 'manual-correct') {
+    toggleManual()
     return
   }
 
@@ -777,7 +951,14 @@ const handleAction = (action: EditAction): void => {
               v-for="action in actions"
               :key="action.key"
               class="action-btn"
-              :class="[action.variant, { 'is-active': picking && action.key === 'remove-color' }]"
+              :class="[
+                action.variant,
+                {
+                  'is-active':
+                    (picking && action.key === 'remove-color') ||
+                    (manualMode && action.key === 'manual-correct')
+                }
+              ]"
               type="button"
               :aria-label="action.label"
               :disabled="isActionDisabled(action.key)"
@@ -870,7 +1051,7 @@ const handleAction = (action: EditAction): void => {
             <!-- <span class="arrow-label">前一图片</span> -->
           </button>
 
-          <div ref="stageRef" class="canvas-stage" :class="{ picking }">
+          <div ref="stageRef" class="canvas-stage" :class="{ picking, manual: manualMode }">
             <div ref="frameRef" class="stage-frame" @mousedown="startSelect">
               <img
                 ref="imgRef"
@@ -882,9 +1063,36 @@ const handleAction = (action: EditAction): void => {
                 @click="handleCanvasClick"
               />
 
+              <svg
+                v-if="manualMode && lineStyle"
+                class="line-overlay"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+              >
+                <line
+                  class="manual-line"
+                  :x1="lineStyle.x1"
+                  :y1="lineStyle.y1"
+                  :x2="lineStyle.x2"
+                  :y2="lineStyle.y2"
+                  vector-effect="non-scaling-stroke"
+                />
+              </svg>
+
               <div v-if="selectionStyle" class="selection-box" :style="selectionStyle">
                 <span v-if="dragging" class="selection-size">{{ selectionSize }}</span>
               </div>
+            </div>
+
+            <div v-if="manualMode" class="pick-hint manual-hint">
+              <span class="pick-text">
+                {{
+                  lineDrawing
+                    ? `直线倾斜角 ${lineAngleText}，松开鼠标即按此角度校正`
+                    : '按住鼠标左键在图片上拖出一条直线，用于测量倾斜角'
+                }}
+              </span>
+              <button class="btn btn-sm" type="button" @click="cancelManual">取消</button>
             </div>
 
             <div v-if="picking" class="pick-hint">
@@ -1080,6 +1288,26 @@ const handleAction = (action: EditAction): void => {
   outline-offset: 2px;
 }
 
+.canvas-stage.manual img {
+  cursor: crosshair;
+}
+
+.line-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.manual-line {
+  stroke: #facc15;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  paint-order: stroke;
+}
+
 .selection-box {
   position: absolute;
   border: 1px dashed var(--color-primary);
@@ -1138,6 +1366,16 @@ const handleAction = (action: EditAction): void => {
   height: 22px;
   padding: 0 10px;
   font-size: 12px;
+}
+
+.manual-hint {
+  border-color: #facc15;
+  white-space: normal;
+}
+
+.manual-hint .pick-text {
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .color-picker {
