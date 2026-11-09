@@ -8,9 +8,26 @@ export interface ImportedImage {
   dataUrl: string
 }
 
+export interface PdfSourceFile {
+  path: string
+  name: string
+  size: number
+}
+
 export interface OpenImagesResult {
   canceled: boolean
   images: ImportedImage[]
+  pdfs?: PdfSourceFile[]
+  message?: string
+}
+
+export interface ReadPdfFilePayload {
+  path: string
+}
+
+export interface ReadPdfFileResult {
+  ok: boolean
+  data?: string
   message?: string
 }
 
@@ -117,6 +134,7 @@ export interface PdfExportResult {
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
+  readPdfFile: (payload: ReadPdfFilePayload) => Promise<ReadPdfFileResult>
   getSettings: () => Promise<AppSettings>
   selectTempDir: () => Promise<SelectTempDirResult>
   openTempDir: () => Promise<OpenTempDirResult>

@@ -1,9 +1,20 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, net, protocol } from 'electron'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
+import { pathToFileURL } from 'url'
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
+
+const ASSET_SCHEME = 'app-asset'
+const ASSET_HOST = 'local'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ASSET_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+  }
+])
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   png: 'image/png',
@@ -18,6 +29,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 }
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024
+const PDF_EXTENSION = 'pdf'
+const MAX_PDF_SIZE = 200 * 1024 * 1024
 
 interface ImportedImage {
   path: string
@@ -25,6 +38,12 @@ interface ImportedImage {
   ext: string
   size: number
   dataUrl: string
+}
+
+interface PdfSourceFile {
+  path: string
+  name: string
+  size: number
 }
 
 interface AppSettings {
@@ -138,6 +157,22 @@ async function readImageFile(filePath: string): Promise<ImportedImage | null> {
   }
 }
 
+async function readPdfSource(filePath: string): Promise<PdfSourceFile | null> {
+  try {
+    const fileStat = await stat(filePath)
+    if (!fileStat.isFile() || fileStat.size > MAX_PDF_SIZE) return null
+
+    return { path: filePath, name: basename(filePath), size: fileStat.size }
+  } catch (error) {
+    console.error('Failed to read PDF:', filePath, error)
+    return null
+  }
+}
+
+function isPdfPath(filePath: string): boolean {
+  return extname(filePath).slice(1).toLowerCase() === PDF_EXTENSION
+}
+
 function sanitizeFileName(name: string): string {
   const cleaned = Array.from(name)
     .filter((char) => char.charCodeAt(0) >= 32)
@@ -148,6 +183,10 @@ function sanitizeFileName(name: string): string {
     .slice(0, 80)
 
   return cleaned || 'archive'
+}
+
+function staticAssetRoot(): string {
+  return is.dev ? join(__dirname, '../../src/renderer/public') : join(__dirname, '../renderer')
 }
 
 function createWindow(): void {
@@ -193,6 +232,30 @@ app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
+  // Serve bundled static assets (pdf.js cmaps / standard fonts) over a fetchable scheme
+  protocol.handle(ASSET_SCHEME, async (request) => {
+    const { host, pathname } = new URL(request.url)
+
+    if (host !== ASSET_HOST) {
+      return new Response('Not found', { status: 404 })
+    }
+
+    const root = resolve(staticAssetRoot())
+    const target = resolve(join(root, decodeURIComponent(pathname)))
+    const rel = relative(root, target)
+
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+      return new Response('Not found', { status: 404 })
+    }
+
+    try {
+      return await net.fetch(pathToFileURL(target).toString())
+    } catch (error) {
+      console.error('Failed to serve asset:', target, error)
+      return new Response('Not found', { status: 404 })
+    }
+  })
+
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
@@ -207,14 +270,16 @@ app.whenReady().then(() => {
   ipcMain.handle('image:open-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
-      title: '选择要导入的图片',
+      title: '选择要导入的图片或 PDF',
       buttonLabel: '导入',
       properties: ['openFile', 'multiSelections'],
       filters: [
         {
-          name: '图片文件',
-          extensions: Object.keys(IMAGE_MIME_TYPES)
-        }
+          name: '图片与 PDF 文件',
+          extensions: [...Object.keys(IMAGE_MIME_TYPES), PDF_EXTENSION]
+        },
+        { name: '图片文件', extensions: Object.keys(IMAGE_MIME_TYPES) },
+        { name: 'PDF 文件', extensions: [PDF_EXTENSION] }
       ]
     }
 
@@ -223,14 +288,24 @@ app.whenReady().then(() => {
       : await dialog.showOpenDialog(options)
 
     if (result.canceled || result.filePaths.length === 0) {
-      return { canceled: true, images: [] as ImportedImage[] }
+      return { canceled: true, images: [] as ImportedImage[], pdfs: [] as PdfSourceFile[] }
     }
 
-    const images = (await Promise.all(result.filePaths.map(readImageFile))).filter(
-      (item): item is ImportedImage => item !== null
-    )
+    const images: ImportedImage[] = []
+    const pdfs: PdfSourceFile[] = []
 
-    return { canceled: false, images }
+    for (const filePath of result.filePaths) {
+      if (isPdfPath(filePath)) {
+        const source = await readPdfSource(filePath)
+        if (source) pdfs.push(source)
+        continue
+      }
+
+      const image = await readImageFile(filePath)
+      if (image) images.push(image)
+    }
+
+    return { canceled: false, images, pdfs }
   })
 
   // Open a native folder dialog and return every image inside it as data URLs
@@ -247,7 +322,7 @@ app.whenReady().then(() => {
       : await dialog.showOpenDialog(options)
 
     if (result.canceled || result.filePaths.length === 0) {
-      return { canceled: true, images: [] as ImportedImage[] }
+      return { canceled: true, images: [] as ImportedImage[], pdfs: [] as PdfSourceFile[] }
     }
 
     const folderPath = result.filePaths[0]
@@ -255,20 +330,57 @@ app.whenReady().then(() => {
     try {
       const entries = await readdir(folderPath, { withFileTypes: true })
       const filePaths = entries
-        .filter(
-          (entry) => entry.isFile() && IMAGE_MIME_TYPES[extname(entry.name).slice(1).toLowerCase()]
-        )
+        .filter((entry) => {
+          if (!entry.isFile()) return false
+          const ext = extname(entry.name).slice(1).toLowerCase()
+          return Boolean(IMAGE_MIME_TYPES[ext]) || ext === PDF_EXTENSION
+        })
         .map((entry) => join(folderPath, entry.name))
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
-      const images = (await Promise.all(filePaths.map(readImageFile))).filter(
-        (item): item is ImportedImage => item !== null
-      )
+      const images: ImportedImage[] = []
+      const pdfs: PdfSourceFile[] = []
 
-      return { canceled: false, images }
+      for (const filePath of filePaths) {
+        if (isPdfPath(filePath)) {
+          const source = await readPdfSource(filePath)
+          if (source) pdfs.push(source)
+          continue
+        }
+
+        const image = await readImageFile(filePath)
+        if (image) images.push(image)
+      }
+
+      return { canceled: false, images, pdfs }
     } catch (error) {
       console.error('Failed to read image folder:', folderPath, error)
-      return { canceled: false, images: [] as ImportedImage[], message: '无法读取该文件夹' }
+      return {
+        canceled: false,
+        images: [] as ImportedImage[],
+        pdfs: [] as PdfSourceFile[],
+        message: '无法读取该文件夹'
+      }
+    }
+  })
+
+  // Read a PDF file as base64 so the renderer can rasterize its pages
+  ipcMain.handle('pdf:read-file', async (_event, payload: { path: string }) => {
+    try {
+      const filePath = payload.path
+      if (!isPdfPath(filePath)) return { ok: false, message: '该文件不是 PDF 文件' }
+
+      const fileStat = await stat(filePath)
+      if (!fileStat.isFile()) return { ok: false, message: 'PDF 文件不存在' }
+      if (fileStat.size > MAX_PDF_SIZE) {
+        return { ok: false, message: 'PDF 文件超过 200 MB，无法导入' }
+      }
+
+      const buffer = await readFile(filePath)
+      return { ok: true, data: buffer.toString('base64') }
+    } catch (error) {
+      console.error('Failed to read PDF:', payload.path, error)
+      return { ok: false, message: '无法读取该 PDF 文件' }
     }
   })
 

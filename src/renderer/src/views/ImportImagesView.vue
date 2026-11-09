@@ -3,14 +3,17 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { imageStore, type Archive, type EditableImage } from '../stores/imageStore'
 import type {
+  ImportedImage,
   OpenImagesResult,
   PdfExportArchive,
   PdfExportArchiveResult,
   PdfExportFailure,
-  PdfExportProgress
+  PdfExportProgress,
+  PdfSourceFile
 } from '../../../preload/index.d'
 import { formatSize } from '../utils/format'
 import { isPdfReadyDataUrl, toPdfJpegDataUrl } from '../utils/image'
+import { rasterizePdf } from '../utils/pdf'
 
 const router = useRouter()
 
@@ -21,6 +24,7 @@ const activeArchiveName = computed(() => imageStore.activeArchive?.name ?? '')
 const viewMode = ref<'grid' | 'list'>('grid')
 const loading = ref(false)
 const message = ref('')
+const pdfProgress = ref('')
 
 const creatingArchive = ref(false)
 const newArchiveName = ref('')
@@ -71,22 +75,87 @@ const flashMessage = (text: string): void => {
   }, 2500)
 }
 
-const applyImported = (result: OpenImagesResult): void => {
+const pdfArchiveName = (name: string): string => {
+  const stripped = name.replace(/\.pdf$/i, '').trim()
+  return stripped || name.trim()
+}
+
+const importPdfFile = async (
+  source: PdfSourceFile,
+  index: number,
+  total: number
+): Promise<number> => {
+  pdfProgress.value = `正在读取 PDF（${index + 1}/${total}）「${source.name}」`
+
+  const read = await window.api.readPdfFile({ path: source.path })
+  if (!read.ok || !read.data) throw new Error(read.message || '无法读取该 PDF 文件')
+
+  const pages = await rasterizePdf(read.data, {
+    onProgress: (page, count) => {
+      pdfProgress.value = `正在拆分 PDF（${index + 1}/${total}）「${source.name}」第 ${page}/${count} 页`
+    }
+  })
+
+  if (!pages.length) throw new Error('该 PDF 没有可用的页面')
+
+  const archiveName = pdfArchiveName(source.name)
+  const existing = archives.value.find((item) => item.name.trim() === archiveName)
+  const archive = existing ?? imageStore.addArchive(archiveName)
+  imageStore.selectArchive(archive.id)
+
+  const list: ImportedImage[] = pages.map((item) => ({
+    path: `${source.path}#page=${item.page}`,
+    name: `${archiveName}_${String(item.page).padStart(3, '0')}.jpg`,
+    ext: 'jpg',
+    size: item.size,
+    dataUrl: item.dataUrl
+  }))
+
+  return imageStore.add(list).added
+}
+
+const applyImported = async (result: OpenImagesResult): Promise<void> => {
   if (result.message) {
     flashMessage(result.message)
     return
   }
 
-  const { added, skipped } = imageStore.add(result.images)
+  let added = 0
+  let skipped = 0
+  let pdfArchives = 0
+  let pdfPages = 0
+  let pdfFailed = 0
 
-  if (!added) {
-    flashMessage(skipped ? `所选图片均已导入，跳过 ${skipped} 张` : '未读取到可用的图片')
-    return
+  if (result.images.length) {
+    const summary = imageStore.add(result.images)
+    added += summary.added
+    skipped += summary.skipped
   }
 
-  flashMessage(
-    skipped ? `已导入 ${added} 张，跳过 ${skipped} 张重复图片` : `已导入 ${added} 张图片`
-  )
+  const pdfs = result.pdfs ?? []
+
+  for (let index = 0; index < pdfs.length; index += 1) {
+    try {
+      const pages = await importPdfFile(pdfs[index], index, pdfs.length)
+      if (pages) {
+        pdfArchives += 1
+        pdfPages += pages
+      }
+    } catch (error) {
+      console.error(error)
+      pdfFailed += 1
+    }
+  }
+
+  pdfProgress.value = ''
+
+  const parts: string[] = []
+  if (added) parts.push(`导入 ${added} 张图片`)
+  if (skipped) parts.push(`跳过 ${skipped} 张重复图片`)
+  if (pdfPages) parts.push(`PDF 共 ${pdfArchives} 个档案 ${pdfPages} 页`)
+  if (pdfFailed) parts.push(`${pdfFailed} 个 PDF 解析失败`)
+
+  flashMessage(parts.length ? parts.join('，') : '未读取到可用的图像')
 }
 
 const importImages = async (): Promise<void> => {
@@ -94,11 +163,12 @@ const importImages = async (): Promise<void> => {
   try {
     const result = await window.api.openImages()
     if (result.canceled) return
-    applyImported(result)
+    await applyImported(result)
   } catch (error) {
     console.error(error)
     flashMessage('导入失败，请稍后重试')
   } finally {
+    pdfProgress.value = ''
     loading.value = false
   }
 }
@@ -108,11 +178,12 @@ const importFolder = async (): Promise<void> => {
   try {
     const result = await window.api.openImageFolder()
     if (result.canceled) return
-    applyImported(result)
+    await applyImported(result)
   } catch (error) {
     console.error(error)
     flashMessage('导入失败，请稍后重试')
   } finally {
+    pdfProgress.value = ''
     loading.value = false
   }
 }
@@ -575,7 +646,8 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
         <h2 class="page-title">导入图像</h2>
         <p class="page-description">
           单击图像可选中多张并拖到左侧档案；按 F7 标记起点、按 F8
-          结束并移入新档案；双击图像或点击「点击进入编辑」进入编辑页面。
+          结束并移入新档案；双击图像或点击「点击进入编辑」进入编辑页面。 支持导入 PDF：每个 PDF
+          会按文件名新建档案，并按页拆分为图像。
         </p>
       </div>
       <div class="page-actions">
@@ -589,7 +661,7 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
         </div>
         <button class="btn" type="button" :disabled="!images.length" @click="clearAll">清空</button>
         <button class="btn btn-primary" type="button" :disabled="loading" @click="importImages">
-          {{ loading ? '读取中...' : '导入图像' }}
+          {{ loading ? '读取中...' : '导入图像/PDF' }}
         </button>
         <button class="btn" type="button" :disabled="loading" @click="importFolder">
           {{ loading ? '读取中...' : '导入文件夹' }}
@@ -695,7 +767,8 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
               共 {{ images.length }} 张 · {{ formatSize(totalSize) }}
             </span>
           </div>
-          <span v-if="markAnchorId" class="tag tag-warning">
+          <span v-if="pdfProgress" class="tag tag-primary">{{ pdfProgress }}</span>
+          <span v-else-if="markAnchorId" class="tag tag-warning">
             已标记起点 · 点击结束图像后按 F8 归档
           </span>
           <span v-else-if="selectedIds.length" class="tag tag-primary">
@@ -706,7 +779,7 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
 
         <div v-if="!images.length" class="empty-state">
           <p>还没有导入任何图像</p>
-          <p class="empty-hint">点击右上角「导入图像」按钮，可一次选择多张图像。</p>
+          <p class="empty-hint">点击右上角「导入图像」按钮，可一次选择多张图像或 PDF 文件。</p>
         </div>
 
         <div v-else-if="viewMode === 'grid'" class="thumb-grid">

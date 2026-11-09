@@ -5,6 +5,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   openImages: (): Promise<unknown> => ipcRenderer.invoke('image:open-dialog'),
   openImageFolder: (): Promise<unknown> => ipcRenderer.invoke('image:open-folder-dialog'),
+  readPdfFile: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('pdf:read-file', payload),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke('settings:get'),
   selectTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:select-temp-dir'),
   openTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:open-temp-dir'),
