@@ -216,6 +216,127 @@ const syncResolution = (): void => {
   }
 
   resolution.value = { width: img.naturalWidth, height: img.naturalHeight }
+  computeFitScale()
+}
+
+const MIN_ZOOM = 10
+const MAX_ZOOM = 300
+const ZOOM_STEP = 10
+const ZOOM_FIT = 100
+const STAGE_PADDING = 20
+const VIEWPORT_PADDING = 8
+
+const zoom = ref(ZOOM_FIT)
+const zoomDragging = ref(false)
+const zoomTrackRef = ref<HTMLElement | null>(null)
+const fitScale = ref(1)
+let stageObserver: ResizeObserver | null = null
+
+const clampZoom = (value: number): number =>
+  Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value)))
+
+const setZoom = (value: number): void => {
+  zoom.value = clampZoom(value)
+}
+
+const stepZoom = (delta: number): void => setZoom(zoom.value + delta)
+
+const zoomRatio = computed(() => (zoom.value - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM))
+
+const fitRatio = computed(() => (ZOOM_FIT - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM))
+
+const computeFitScale = (): void => {
+  const stage = stageRef.value
+  const width = resolution.value.width
+  const height = resolution.value.height
+  if (!stage || !width || !height) return
+
+  const availableWidth = Math.max(1, stage.clientWidth - STAGE_PADDING * 2 - VIEWPORT_PADDING)
+  const availableHeight = Math.max(1, stage.clientHeight - STAGE_PADDING * 2 - VIEWPORT_PADDING)
+
+  fitScale.value = Math.min(1, availableWidth / width, availableHeight / height)
+}
+
+const observeStage = (): void => {
+  stageObserver?.disconnect()
+  const stage = stageRef.value
+  if (!stage) return
+
+  stageObserver = new ResizeObserver(() => computeFitScale())
+  stageObserver.observe(stage)
+}
+
+const frameStyle = computed(() => {
+  const width = resolution.value.width
+  const height = resolution.value.height
+  if (!width || !height) return {}
+
+  const scale = fitScale.value * (zoom.value / 100)
+  return {
+    width: `${Math.round(width * scale)}px`,
+    height: `${Math.round(height * scale)}px`
+  }
+})
+
+const handleWheel = (event: WheelEvent): void => {
+  if (!event.ctrlKey) return
+
+  event.preventDefault()
+  stepZoom(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)
+}
+
+const updateZoomFromPointer = (event: MouseEvent): void => {
+  const track = zoomTrackRef.value
+  if (!track) return
+
+  const rect = track.getBoundingClientRect()
+  if (!rect.height) return
+
+  const ratio = Math.min(1, Math.max(0, 1 - (event.clientY - rect.top) / rect.height))
+  setZoom(MIN_ZOOM + ratio * (MAX_ZOOM - MIN_ZOOM))
+}
+
+const endZoomDrag = (): void => {
+  zoomDragging.value = false
+  window.removeEventListener('mousemove', updateZoomFromPointer)
+  window.removeEventListener('mouseup', endZoomDrag)
+}
+
+const startZoomDrag = (event: MouseEvent): void => {
+  if (event.button !== 0) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  zoomDragging.value = true
+  updateZoomFromPointer(event)
+
+  window.addEventListener('mousemove', updateZoomFromPointer)
+  window.addEventListener('mouseup', endZoomDrag)
+}
+
+const handleZoomKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    stepZoom(ZOOM_STEP)
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    stepZoom(-ZOOM_STEP)
+    return
+  }
+
+  if (event.key === 'Home') {
+    event.preventDefault()
+    setZoom(MAX_ZOOM)
+    return
+  }
+
+  if (event.key === 'End') {
+    event.preventDefault()
+    setZoom(MIN_ZOOM)
+  }
 }
 
 const pointInFrame = (event: MouseEvent): { x: number; y: number } | null => {
@@ -573,6 +694,8 @@ const handleKeydown = (event: KeyboardEvent): void => {
     return
   }
 
+  if (target && target.closest('.zoom-control')) return
+
   if (event.key === 'Escape') {
     if (manualMode.value) cancelManual()
     else if (picking.value) cancelPick()
@@ -599,10 +722,16 @@ const stopDragListeners = (): void => {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
-  void nextTick(syncResolution)
+  void nextTick(() => {
+    observeStage()
+    syncResolution()
+  })
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  stageObserver?.disconnect()
+  stageObserver = null
+  endZoomDrag()
   stopDragListeners()
   cancelManual()
 })
@@ -1073,37 +1202,73 @@ const handleAction = (action: EditAction): void => {
             <!-- <span class="arrow-label">前一图片</span> -->
           </button>
 
-          <div ref="stageRef" class="canvas-stage" :class="{ picking, manual: manualMode }">
-            <div ref="frameRef" class="stage-frame" @mousedown="startSelect">
-              <img
-                ref="imgRef"
-                :src="image.dataUrl"
-                :alt="image.name"
-                draggable="false"
-                @load="syncResolution"
-                @mousemove="handleCanvasMove"
-                @mouseleave="handleCanvasLeave"
-                @click="handleCanvasClick"
-              />
-
-              <svg
-                v-if="manualMode && lineStyle"
-                class="line-overlay"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
+          <div
+            ref="stageRef"
+            class="canvas-stage"
+            :class="{ picking, manual: manualMode }"
+            @wheel="handleWheel"
+          >
+            <div class="zoom-control" :class="{ 'is-dragging': zoomDragging }">
+              <span class="zoom-value">{{ zoom }}%</span>
+              <div
+                ref="zoomTrackRef"
+                class="zoom-track"
+                role="slider"
+                tabindex="0"
+                aria-label="图片缩放比例"
+                aria-orientation="vertical"
+                :aria-valuemin="MIN_ZOOM"
+                :aria-valuemax="MAX_ZOOM"
+                :aria-valuenow="zoom"
+                title="拖动或按方向键调整缩放（Ctrl + 滚轮也可缩放）"
+                @mousedown="startZoomDrag"
+                @dblclick="setZoom(ZOOM_FIT)"
+                @keydown="handleZoomKeydown"
               >
-                <line
-                  class="manual-line"
-                  :x1="lineStyle.x1"
-                  :y1="lineStyle.y1"
-                  :x2="lineStyle.x2"
-                  :y2="lineStyle.y2"
-                  vector-effect="non-scaling-stroke"
-                />
-              </svg>
+                <span class="zoom-fill" :style="{ height: `${zoomRatio * 100}%` }"></span>
+                <span class="zoom-mark" :style="{ bottom: `${fitRatio * 100}%` }"></span>
+                <span class="zoom-handle" :style="{ bottom: `${zoomRatio * 100}%` }"></span>
+              </div>
+              <button class="zoom-btn" type="button" title="放大 10%" @click="stepZoom(ZOOM_STEP)">
+                +
+              </button>
+              <button class="zoom-btn" type="button" title="缩小 10%" @click="stepZoom(-ZOOM_STEP)">
+                −
+              </button>
+            </div>
 
-              <div v-if="selectionStyle" class="selection-box" :style="selectionStyle">
-                <span v-if="dragging" class="selection-size">{{ selectionSize }}</span>
+            <div class="stage-viewport">
+              <div ref="frameRef" class="stage-frame" :style="frameStyle" @mousedown="startSelect">
+                <img
+                  ref="imgRef"
+                  :src="image.dataUrl"
+                  :alt="image.name"
+                  draggable="false"
+                  @load="syncResolution"
+                  @mousemove="handleCanvasMove"
+                  @mouseleave="handleCanvasLeave"
+                  @click="handleCanvasClick"
+                />
+
+                <svg
+                  v-if="manualMode && lineStyle"
+                  class="line-overlay"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <line
+                    class="manual-line"
+                    :x1="lineStyle.x1"
+                    :y1="lineStyle.y1"
+                    :x2="lineStyle.x2"
+                    :y2="lineStyle.y2"
+                    vector-effect="non-scaling-stroke"
+                  />
+                </svg>
+
+                <div v-if="selectionStyle" class="selection-box" :style="selectionStyle">
+                  <span v-if="dragging" class="selection-size">{{ selectionSize }}</span>
+                </div>
               </div>
             </div>
 
@@ -1270,7 +1435,7 @@ const handleAction = (action: EditAction): void => {
 .canvas-stage {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   flex: 1;
   min-width: 0;
@@ -1290,19 +1455,132 @@ const handleAction = (action: EditAction): void => {
     -9px 0;
 }
 
+.stage-viewport {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 62vh;
+  overflow: auto;
+}
+
 .stage-frame {
   position: relative;
   display: flex;
-  max-width: 100%;
-  max-height: 62vh;
+  flex: none;
+  margin: auto;
   line-height: 0;
   cursor: crosshair;
   user-select: none;
 }
 
+.zoom-control {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 14px rgba(15, 35, 66, 0.12);
+  user-select: none;
+}
+
+.zoom-value {
+  min-width: 42px;
+  padding: 1px 0;
+  border-radius: 999px;
+  background-color: var(--color-surface-soft);
+  color: var(--color-text-strong);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-track {
+  position: relative;
+  width: 4px;
+  height: 140px;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  cursor: pointer;
+  outline: none;
+}
+
+.zoom-track:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+.zoom-fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: 999px;
+  background-color: var(--color-primary);
+  pointer-events: none;
+}
+
+.zoom-mark {
+  position: absolute;
+  left: 50%;
+  width: 14px;
+  height: 0;
+  border-top: 1px dashed #94a3b8;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+}
+
+.zoom-handle {
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-primary);
+  border-radius: 50%;
+  background-color: #fff;
+  transform: translate(-50%, 50%);
+  transition: transform 0.12s ease;
+  pointer-events: none;
+}
+
+.zoom-control.is-dragging .zoom-handle {
+  transform: translate(-50%, 50%) scale(1.15);
+}
+
+.zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 50%;
+  background-color: #fff;
+  color: var(--color-text-strong);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.zoom-btn:hover {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
 .canvas-stage img {
-  max-width: 100%;
-  max-height: 62vh;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   background-color: #fff;
   box-shadow: 0 8px 24px -12px rgba(15, 23, 42, 0.3);
