@@ -81,10 +81,10 @@ const handleSearch = (): void => {
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <img class="brand-logo" src="../assets/electron.svg" alt="logo" />
+        <img class="brand-logo" src="../assets/dh.png" alt="logo" />
         <div class="brand-text">
-          <strong>Electron Admin</strong>
-          <span>德鸿档案图像加工系统</span>
+          <strong>DH.ImageProcessor</strong>
+          <span>德鸿图像处理系统</span>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { imageStore, type EditableImage } from '../stores/imageStore'
 import { formatSize } from '../utils/format'
@@ -199,6 +199,24 @@ const lineAngle = computed(() => {
 })
 
 const lineAngleText = computed(() => `${Math.abs(lineAngle.value).toFixed(2)}°`)
+
+const resolution = ref({ width: 0, height: 0 })
+
+const resolutionText = computed(() =>
+  resolution.value.width && resolution.value.height
+    ? `${resolution.value.width} × ${resolution.value.height} 像素`
+    : ''
+)
+
+const syncResolution = (): void => {
+  const img = imgRef.value
+  if (!img || !img.naturalWidth || !img.naturalHeight) {
+    resolution.value = { width: 0, height: 0 }
+    return
+  }
+
+  resolution.value = { width: img.naturalWidth, height: img.naturalHeight }
+}
 
 const pointInFrame = (event: MouseEvent): { x: number; y: number } | null => {
   const frame = frameRef.value
@@ -579,7 +597,10 @@ const stopDragListeners = (): void => {
   window.removeEventListener('mouseup', endSelect)
 }
 
-onMounted(() => window.addEventListener('keydown', handleKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  void nextTick(syncResolution)
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   stopDragListeners()
@@ -600,6 +621,7 @@ watch(
   () => {
     clearSelection()
     if (manualMode.value) cancelManual()
+    void nextTick(syncResolution)
   }
 )
 
@@ -1058,6 +1080,7 @@ const handleAction = (action: EditAction): void => {
                 :src="image.dataUrl"
                 :alt="image.name"
                 draggable="false"
+                @load="syncResolution"
                 @mousemove="handleCanvasMove"
                 @mouseleave="handleCanvasLeave"
                 @click="handleCanvasClick"
@@ -1153,6 +1176,10 @@ const handleAction = (action: EditAction): void => {
             <li>
               <span>格式</span>
               <strong>{{ image.ext.toUpperCase() }}</strong>
+            </li>
+            <li>
+              <span>分辨率</span>
+              <strong>{{ resolutionText || '读取中…' }}</strong>
             </li>
             <li>
               <span>大小</span>

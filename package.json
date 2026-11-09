@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "德鸿图像加工系统",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "kevin@dehongarchive.com",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",

@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: test2
+productName: 德鸿图像处理系统
 directories:
   buildResources: build
 files:

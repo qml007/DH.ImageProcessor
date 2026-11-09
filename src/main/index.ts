@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -159,8 +159,9 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
+    title: '德鸿图像处理系统',
     backgroundColor: '#f4f6fa',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
