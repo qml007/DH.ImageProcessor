@@ -5,6 +5,19 @@ import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
+import {
+  closeDatabase,
+  createArcType,
+  deleteArcType,
+  deleteConfig,
+  getArcType,
+  getConfig,
+  initializeDatabase,
+  listArcType,
+  listConfig,
+  setConfig,
+  updateArcType
+} from './db'
 
 const ASSET_SCHEME = 'app-asset'
 const ASSET_HOST = 'local'
@@ -87,9 +100,7 @@ const MIME_TO_EXT: Record<string, string> = {
 
 let settingsCache: AppSettings | null = null
 
-function settingsFilePath(): string {
-  return join(app.getPath('userData'), 'settings.json')
-}
+const TEMP_DIR_CONFIG_KEY = 'TEMP_DIR_PATH'
 
 function defaultTempDir(): string {
   return join(app.getPath('temp'), 'electron-admin-images')
@@ -101,10 +112,10 @@ async function loadSettings(): Promise<AppSettings> {
   const fallback: AppSettings = { tempDir: defaultTempDir() }
 
   try {
-    const raw = await readFile(settingsFilePath(), 'utf-8')
-    const parsed = JSON.parse(raw) as Partial<AppSettings>
-    settingsCache = { tempDir: parsed.tempDir?.trim() || fallback.tempDir }
-  } catch {
+    const row = getConfig(TEMP_DIR_CONFIG_KEY)
+    settingsCache = { tempDir: row?.configValue.trim() || fallback.tempDir }
+  } catch (error) {
+    console.error('Failed to read temp dir setting from database:', error)
     settingsCache = fallback
   }
 
@@ -112,8 +123,7 @@ async function loadSettings(): Promise<AppSettings> {
 }
 
 async function saveSettings(next: AppSettings): Promise<void> {
-  await mkdir(app.getPath('userData'), { recursive: true })
-  await writeFile(settingsFilePath(), JSON.stringify(next, null, 2), 'utf-8')
+  setConfig(TEMP_DIR_CONFIG_KEY, next.tempDir, '临时文件夹路径')
   settingsCache = next
 }
 
@@ -265,6 +275,130 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  // Initialize the shared SQLite database (ProgramData by default)
+  const dbState = initializeDatabase()
+  if (!dbState.ok) {
+    console.error('Database unavailable:', dbState.message)
+  }
+
+  ipcMain.handle('db:info', () => dbState)
+
+  const dbError = (error: unknown): { ok: false; message: string } => {
+    console.error('Database operation failed:', error)
+    return { ok: false, message: error instanceof Error ? error.message : '数据库操作失败' }
+  }
+
+  ipcMain.handle('db:config-list', () => {
+    try {
+      return { ok: true, items: listConfig() }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle('db:config-get', (_event, payload: { configKey: string }) => {
+    try {
+      return { ok: true, item: getConfig(payload.configKey) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'db:config-set',
+    (_event, payload: { configKey: string; configValue: string; memo?: string }) => {
+      try {
+        setConfig(payload.configKey, payload.configValue, payload.memo)
+        return { ok: true }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('db:config-delete', (_event, payload: { configKey: string }) => {
+    try {
+      return { ok: true, removed: deleteConfig(payload.configKey) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // arcType 档案类型 CRUD
+  ipcMain.handle('arcType:list', (_event, payload?: { includeDisabled?: boolean }) => {
+    try {
+      return { ok: true, items: listArcType(payload?.includeDisabled ?? true) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle('arcType:get', (_event, payload: { typeId: string }) => {
+    try {
+      return { ok: true, item: getArcType(payload.typeId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcType:create',
+    (
+      _event,
+      payload: { arcTypeCode: string; arcTypeName: string; statusFlag: number; memo?: string }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: createArcType({
+            arcTypeCode: payload.arcTypeCode,
+            arcTypeName: payload.arcTypeName,
+            statusFlag: payload.statusFlag,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'arcType:update',
+    (
+      _event,
+      payload: {
+        typeId: string
+        arcTypeCode: string
+        arcTypeName: string
+        statusFlag: number
+        memo?: string
+      }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: updateArcType(payload.typeId, {
+            arcTypeCode: payload.arcTypeCode,
+            arcTypeName: payload.arcTypeName,
+            statusFlag: payload.statusFlag,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('arcType:delete', (_event, payload: { typeId: string }) => {
+    try {
+      return { ok: true, removed: deleteArcType(payload.typeId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
 
   // Open a native file dialog and return the selected images as data URLs
   ipcMain.handle('image:open-dialog', async (event) => {
@@ -661,6 +795,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  closeDatabase()
 })
 
 // In this file you can include the rest of your app's specific main process

@@ -17,6 +17,23 @@ const api = {
     ipcRenderer.invoke('image:delete-temp', payload),
   selectPdfFolder: (): Promise<unknown> => ipcRenderer.invoke('pdf:select-folder'),
   exportPdf: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('pdf:export', payload),
+  getDatabaseInfo: (): Promise<unknown> => ipcRenderer.invoke('db:info'),
+  listConfig: (): Promise<unknown> => ipcRenderer.invoke('db:config-list'),
+  getConfig: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('db:config-get', payload),
+  setConfig: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('db:config-set', payload),
+  deleteConfig: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('db:config-delete', payload),
+
+  // arcType 档案类型 CRUD
+  listArcType: (payload?: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:list', payload),
+  getArcType: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:get', payload),
+  createArcType: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcType:create', payload),
+  updateArcType: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcType:update', payload),
+  deleteArcType: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcType:delete', payload),
+
   onPdfExportProgress: (callback: (progress: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void =>
       callback(progress)

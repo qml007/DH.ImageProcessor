@@ -38,6 +38,12 @@ const router = createRouter({
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
           meta: { title: '系统设置' }
+        },
+        {
+          path: 'archives-types',
+          name: 'archives-types',
+          component: () => import('../views/ArchivesTypeView.vue'),
+          meta: { title: '档案类型' }
         }
       ]
     }

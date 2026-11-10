@@ -50,6 +50,22 @@ const menuGroups: MenuGroup[] = [
         icon: ['M3 5h18v14H3z', 'M3 15.5l4.5-4.5 4 4 3-3 6.5 6.5', 'M15.5 9.5h.01']
       }
     ]
+  },
+  {
+    title: '设置',
+    items: [
+      {
+        path: '/archives-types',
+        label: '档案类型',
+        icon: [
+          'M3 7h18',
+          'M3 12h18',
+          'M3 17h10',
+          'M14 4h7v7h-7z',
+          'M16.5 7.5l1.5 1.5 2-2'
+        ]
+      }
+    ]
   }
 ]
 

@@ -131,6 +131,118 @@ export interface PdfExportResult {
   message?: string
 }
 
+export interface SystemConfigRow {
+  configKey: string
+  configValue: string
+  memo: string
+}
+
+export interface DatabaseInfoResult {
+  ok: boolean
+  path: string
+  message?: string
+}
+
+export interface ConfigListResult {
+  ok: boolean
+  items?: SystemConfigRow[]
+  message?: string
+}
+
+export interface ConfigGetPayload {
+  configKey: string
+}
+
+export interface ConfigGetResult {
+  ok: boolean
+  item?: SystemConfigRow | null
+  message?: string
+}
+
+export interface ConfigSetPayload {
+  configKey: string
+  configValue: string
+  memo?: string
+}
+
+export interface ConfigSetResult {
+  ok: boolean
+  message?: string
+}
+
+export interface ConfigDeletePayload {
+  configKey: string
+}
+
+export interface ConfigDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
+// ---------- arcType 档案类型 ----------
+
+export interface ArcTypeRow {
+  typeId: string
+  arcTypeCode: string
+  arcTypeName: string
+  statusFlag: number
+  memo: string
+}
+
+export interface ArcTypeListPayload {
+  includeDisabled?: boolean
+}
+
+export interface ArcTypeListResult {
+  ok: boolean
+  items?: ArcTypeRow[]
+  message?: string
+}
+
+export interface ArcTypeGetPayload {
+  typeId: string
+}
+
+export interface ArcTypeGetResult {
+  ok: boolean
+  item?: ArcTypeRow | null
+  message?: string
+}
+
+export interface ArcTypeSavePayload {
+  arcTypeCode: string
+  arcTypeName: string
+  statusFlag: number
+  memo?: string
+}
+
+export interface ArcTypeCreateResult {
+  ok: boolean
+  item?: ArcTypeRow
+  message?: string
+}
+
+export interface ArcTypeUpdatePayload extends ArcTypeSavePayload {
+  typeId: string
+}
+
+export interface ArcTypeUpdateResult {
+  ok: boolean
+  item?: ArcTypeRow | null
+  message?: string
+}
+
+export interface ArcTypeDeletePayload {
+  typeId: string
+}
+
+export interface ArcTypeDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -143,6 +255,16 @@ export interface RendererApi {
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>
+  getDatabaseInfo: () => Promise<DatabaseInfoResult>
+  listConfig: () => Promise<ConfigListResult>
+  getConfig: (payload: ConfigGetPayload) => Promise<ConfigGetResult>
+  setConfig: (payload: ConfigSetPayload) => Promise<ConfigSetResult>
+  deleteConfig: (payload: ConfigDeletePayload) => Promise<ConfigDeleteResult>
+  listArcType: (payload?: ArcTypeListPayload) => Promise<ArcTypeListResult>
+  getArcType: (payload: ArcTypeGetPayload) => Promise<ArcTypeGetResult>
+  createArcType: (payload: ArcTypeSavePayload) => Promise<ArcTypeCreateResult>
+  updateArcType: (payload: ArcTypeUpdatePayload) => Promise<ArcTypeUpdateResult>
+  deleteArcType: (payload: ArcTypeDeletePayload) => Promise<ArcTypeDeleteResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 
