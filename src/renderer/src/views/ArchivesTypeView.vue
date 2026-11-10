@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 interface ArcTypeRow {
   typeId: string
@@ -8,6 +9,8 @@ interface ArcTypeRow {
   statusFlag: number
   memo: string
 }
+
+const router = useRouter()
 
 const items = ref<ArcTypeRow[]>([])
 const loading = ref(false)
@@ -183,16 +186,57 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
               </td>
               <td class="memo-cell">{{ row.memo || '—' }}</td>
               <td class="col-actions">
-                <button class="link-btn" type="button" @click="openEdit(row)">编辑</button>
                 <button
-                  class="link-btn"
+                  class="icon-btn-inline primary"
                   type="button"
+                  title="进入字段定义"
+                  @click="router.push({ path: `/archives-types/${row.typeId}/fields` })"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                </button>
+                <button
+                  class="icon-btn-inline"
+                  type="button"
+                  title="编辑"
+                  @click="openEdit(row)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+                  </svg>
+                </button>
+                <button
+                  class="icon-btn-inline"
+                  :class="{ danger: row.statusFlag === 1, success: row.statusFlag === 0 }"
+                  type="button"
+                  :title="row.statusFlag === 1 ? '禁用' : '启用'"
                   @click="toggleEnabled(row)"
                 >
-                  {{ row.statusFlag === 1 ? '禁用' : '启用' }}
+                  <svg v-if="row.statusFlag === 1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M4.93 4.93l14.14 14.14" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <path d="m9 11 3 3L22 4" />
+                  </svg>
                 </button>
-                <button class="link-btn danger" type="button" @click="removeItem(row)">
-                  删除
+                <button
+                  class="icon-btn-inline danger"
+                  type="button"
+                  title="删除"
+                  @click="removeItem(row)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
                 </button>
               </td>
             </tr>
@@ -217,7 +261,6 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
               class="input"
               type="text"
               placeholder="如：ARCHIVE_DAILY"
-              :disabled="!!editing"
             />
           </div>
           <div class="form-item modal-gap">
@@ -230,13 +273,15 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
               placeholder="如：日常文书档案"
             />
           </div>
-          <div class="form-item modal-gap form-row">
+          <div class="form-item modal-gap">
             <label class="form-label">是否有效</label>
-            <label class="switch">
-              <input v-model="form.statusFlag" type="checkbox" :true-value="1" :false-value="0" />
-              <span class="switch-slider"></span>
-            </label>
-            <span class="switch-label">{{ form.statusFlag === 1 ? '有效' : '已禁用' }}</span>
+            <div class="form-control-row">
+              <label class="switch">
+                <input v-model="form.statusFlag" type="checkbox" :true-value="1" :false-value="0" />
+                <span class="switch-slider"></span>
+              </label>
+              <span class="switch-label">{{ form.statusFlag === 1 ? '有效' : '已禁用' }}</span>
+            </div>
           </div>
           <div class="form-item modal-gap">
             <label class="form-label" for="at-memo">备注</label>
@@ -251,9 +296,20 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
           <p v-if="formError" class="form-error">{{ formError }}</p>
         </div>
         <div class="modal-footer">
-          <button class="btn" type="button" @click="modalVisible = false">取消</button>
-          <button class="btn btn-primary" type="button" @click="submitForm">
-            {{ editing ? '保存修改' : '创建' }}
+          <button class="icon-btn-lg" type="button" title="取消" @click="modalVisible = false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+            <span>取消</span>
+          </button>
+          <button class="icon-btn-lg primary" type="button" title="保存" @click="submitForm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            <span>{{ editing ? '保存' : '创建' }}</span>
           </button>
         </div>
       </div>
@@ -279,7 +335,7 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
   text-overflow: ellipsis;
 }
 
-.form-row {
+.form-control-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -344,5 +400,85 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
 textarea.input {
   min-height: 68px;
   resize: vertical;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* 行内图标按钮（表格操作列） */
+.icon-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-2);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn-inline:hover {
+  background-color: var(--color-surface-soft);
+  color: var(--color-primary);
+}
+
+.icon-btn-inline.danger:hover {
+  color: var(--color-danger);
+  background-color: rgba(239, 68, 68, 0.08);
+}
+
+.icon-btn-inline.success:hover {
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.1);
+}
+
+.icon-btn-inline svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* 底部图标 + 文字按钮（弹窗 footer） */
+.icon-btn-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  font-size: 13px;
+  color: var(--color-text-2);
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn-lg:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.icon-btn-lg.primary {
+  border-color: transparent;
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+.icon-btn-lg.primary:hover {
+  background-color: color-mix(in srgb, var(--color-primary) 88%, black);
+  color: #fff;
+}
+
+.icon-btn-lg svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 </style>

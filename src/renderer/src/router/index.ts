@@ -44,6 +44,12 @@ const router = createRouter({
           name: 'archives-types',
           component: () => import('../views/ArchivesTypeView.vue'),
           meta: { title: '档案类型' }
+        },
+        {
+          path: 'archives-types/:typeId/fields',
+          name: 'archives-type-fields',
+          component: () => import('../views/ArchivesFieldsView.vue'),
+          meta: { title: '档案字段定义' }
         }
       ]
     }

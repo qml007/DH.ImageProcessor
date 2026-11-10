@@ -34,6 +34,16 @@ const api = {
   deleteArcType: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('arcType:delete', payload),
 
+  // arcFieldInfo 档案类型字段 CRUD
+  listArcFieldInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldInfo:list', payload),
+  createArcFieldInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldInfo:create', payload),
+  updateArcFieldInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldInfo:update', payload),
+  deleteArcFieldInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldInfo:delete', payload),
+
   onPdfExportProgress: (callback: (progress: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void =>
       callback(progress)

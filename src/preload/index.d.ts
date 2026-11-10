@@ -243,6 +243,63 @@ export interface ArcTypeDeleteResult {
   message?: string
 }
 
+// ---------- arcFieldInfo 档案类型字段 ----------
+
+export interface ArcFieldInfoRow {
+  fieldId: string
+  arcTypeId: string
+  sortNo: number
+  fieldName: string
+  fieldType: string
+  isRequired: number
+  memo: string
+}
+
+export interface ArcFieldInfoListPayload {
+  arcTypeId: string
+}
+
+export interface ArcFieldInfoListResult {
+  ok: boolean
+  items?: ArcFieldInfoRow[]
+  message?: string
+}
+
+export interface ArcFieldInfoSavePayload {
+  arcTypeId: string
+  sortNo: number
+  fieldName: string
+  fieldType: string
+  isRequired: number
+  memo?: string
+}
+
+export interface ArcFieldInfoCreateResult {
+  ok: boolean
+  item?: ArcFieldInfoRow
+  message?: string
+}
+
+export interface ArcFieldInfoUpdatePayload extends ArcFieldInfoSavePayload {
+  fieldId: string
+}
+
+export interface ArcFieldInfoUpdateResult {
+  ok: boolean
+  item?: ArcFieldInfoRow | null
+  message?: string
+}
+
+export interface ArcFieldInfoDeletePayload {
+  fieldId: string
+}
+
+export interface ArcFieldInfoDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -265,6 +322,10 @@ export interface RendererApi {
   createArcType: (payload: ArcTypeSavePayload) => Promise<ArcTypeCreateResult>
   updateArcType: (payload: ArcTypeUpdatePayload) => Promise<ArcTypeUpdateResult>
   deleteArcType: (payload: ArcTypeDeletePayload) => Promise<ArcTypeDeleteResult>
+  listArcFieldInfo: (payload: ArcFieldInfoListPayload) => Promise<ArcFieldInfoListResult>
+  createArcFieldInfo: (payload: ArcFieldInfoSavePayload) => Promise<ArcFieldInfoCreateResult>
+  updateArcFieldInfo: (payload: ArcFieldInfoUpdatePayload) => Promise<ArcFieldInfoUpdateResult>
+  deleteArcFieldInfo: (payload: ArcFieldInfoDeletePayload) => Promise<ArcFieldInfoDeleteResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 

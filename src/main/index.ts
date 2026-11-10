@@ -7,15 +7,19 @@ import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
 import {
   closeDatabase,
+  createArcFieldInfo,
   createArcType,
+  deleteArcFieldInfo,
   deleteArcType,
   deleteConfig,
   getArcType,
   getConfig,
   initializeDatabase,
+  listArcFieldInfo,
   listArcType,
   listConfig,
   setConfig,
+  updateArcFieldInfo,
   updateArcType
 } from './db'
 
@@ -395,6 +399,86 @@ app.whenReady().then(() => {
   ipcMain.handle('arcType:delete', (_event, payload: { typeId: string }) => {
     try {
       return { ok: true, removed: deleteArcType(payload.typeId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // arcFieldInfo 档案类型字段 CRUD
+  ipcMain.handle('arcFieldInfo:list', (_event, payload: { arcTypeId: string }) => {
+    try {
+      return { ok: true, items: listArcFieldInfo(payload.arcTypeId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcFieldInfo:create',
+    (
+      _event,
+      payload: {
+        arcTypeId: string
+        sortNo: number
+        fieldName: string
+        fieldType: string
+        isRequired: number
+        memo?: string
+      }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: createArcFieldInfo({
+            arcTypeId: payload.arcTypeId,
+            sortNo: payload.sortNo,
+            fieldName: payload.fieldName,
+            fieldType: payload.fieldType,
+            isRequired: payload.isRequired,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'arcFieldInfo:update',
+    (
+      _event,
+      payload: {
+        fieldId: string
+        arcTypeId: string
+        sortNo: number
+        fieldName: string
+        fieldType: string
+        isRequired: number
+        memo?: string
+      }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: updateArcFieldInfo(payload.fieldId, {
+            arcTypeId: payload.arcTypeId,
+            sortNo: payload.sortNo,
+            fieldName: payload.fieldName,
+            fieldType: payload.fieldType,
+            isRequired: payload.isRequired,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('arcFieldInfo:delete', (_event, payload: { fieldId: string }) => {
+    try {
+      return { ok: true, removed: deleteArcFieldInfo(payload.fieldId) }
     } catch (error) {
       return dbError(error)
     }
