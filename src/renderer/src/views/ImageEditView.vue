@@ -801,6 +801,69 @@ const goBack = (): void => {
   router.push({ name: 'images' })
 }
 
+const findCurrentArchiveIndex = (): number => {
+  const current = image.value
+  if (!current) return -1
+  return imageStore.archives.findIndex((item) => item.id === current.archiveId)
+}
+
+const goArchiveByOffset = (offset: 1 | -1): void => {
+  const idx = findCurrentArchiveIndex()
+  const archives = imageStore.archives
+
+  const targetIdx = idx + offset
+  if (targetIdx < 0) {
+    flashNotice('已经是第一份档案')
+    return
+  }
+  if (targetIdx >= archives.length) {
+    flashNotice('已经是最后一份档案')
+    return
+  }
+
+  const targetArchive = archives[targetIdx]
+  const targetImages = imageStore.imagesOf(targetArchive.id)
+
+  if (!targetImages.length) {
+    flashNotice(`${offset > 0 ? '下' : '上'}一份档案「${targetArchive.name}」中暂无图片`)
+    return
+  }
+
+  imageStore.selectArchive(targetArchive.id)
+  router.push({ name: 'image-edit', params: { id: targetImages[0].id } })
+}
+
+const goPrevArchive = (): void => {
+  goArchiveByOffset(-1)
+}
+
+const goNextArchive = (): void => {
+  goArchiveByOffset(1)
+}
+
+const prevArchiveDisabled = computed(() => findCurrentArchiveIndex() <= 0)
+
+const nextArchiveDisabled = computed(() => {
+  const idx = findCurrentArchiveIndex()
+  return idx < 0 || idx >= imageStore.archives.length - 1
+})
+
+const prevArchiveHint = computed(() => {
+  const idx = findCurrentArchiveIndex()
+  if (idx <= 0) return '已是第一份档案'
+  const prev = imageStore.archives[idx - 1]
+  const count = imageStore.countOf(prev.id)
+  return `上一份档案：${prev.name}${count ? `（${count} 张）` : '（暂无图片）'}`
+})
+
+const nextArchiveHint = computed(() => {
+  const idx = findCurrentArchiveIndex()
+  if (idx < 0 || idx >= imageStore.archives.length - 1) return '已是最后一份档案'
+  const next = imageStore.archives[idx + 1]
+  const count = imageStore.countOf(next.id)
+  return `下一份档案：${next.name}${count ? `（${count} 张）` : '（暂无图片）'}`
+})
+
 const openImage = (target?: EditableImage): void => {
   if (!target) return
   router.push({ name: 'image-edit', params: { id: target.id } })
@@ -1188,9 +1251,29 @@ const handleAction = (action: EditAction): void => {
   <div>
     <div class="page-header">
       <div class="header-left">
-        <button class="btn btn-sm" type="button" @click="goBack">← 返回列表</button>
+        <div class="nav-btn-group">
+          <button class="btn btn-sm" type="button" @click="goBack">← 返回列表</button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="prevArchiveDisabled"
+            :title="prevArchiveHint"
+            @click="goPrevArchive"
+          >
+            ← 上一档案
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="nextArchiveDisabled"
+            :title="nextArchiveHint"
+            @click="goNextArchive"
+          >
+            下一档案 →
+          </button>
+        </div>
         <div>
-          <h2 class="page-title">{{ image ? image.name : '图片编辑' }}</h2>
+          <h2 class="page-title"> {{ imageStore.activeArchive?.name || '无档案'}} / {{ image ? image.name : '图片编辑' }}</h2>
           <!-- <p class="page-description">调整图片方向与倾斜角度，确认后保留或去除。</p> -->
         </div>
       </div>
@@ -1516,6 +1599,32 @@ const handleAction = (action: EditAction): void => {
 .header-left .btn {
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+.nav-btn-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.nav-btn-group .btn {
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--color-border-strong);
+}
+
+.nav-btn-group .btn:last-child {
+  border-right: none;
+}
+
+.nav-btn-group .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .editor {
