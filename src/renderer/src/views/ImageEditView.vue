@@ -5,6 +5,10 @@ import { imageStore, type EditableImage } from '../stores/imageStore'
 import { formatSize } from '../utils/format'
 import {
   rotateImage,
+  flipImage,
+  grayscaleImage,
+  vintageImage,
+  sharpenImage,
   deskewImage,
   deskewImageByLineAngle,
   createPixelSampler,
@@ -13,6 +17,7 @@ import {
   maskRegion,
   centerRegion,
   type PixelSampler,
+  type FlipDirection,
   type RotationAngle
 } from '../utils/image'
 
@@ -69,6 +74,20 @@ const actions: EditAction[] = [
     icon: ['M21 5v5h-5', 'M20.5 10a8 8 0 1 1-2-5.3']
   },
   {
+    key: 'flip-horizontal',
+    label: '水平翻转',
+    desc: '左右对换图片（水平镜像）',
+    variant: 'default',
+    icon: ['M12 3v18', 'M9 7 4 12l5 5z', 'M15 7l5 5-5 5z']
+  },
+  {
+    key: 'flip-vertical',
+    label: '垂直翻转',
+    desc: '上下对换图片（垂直镜像）',
+    variant: 'default',
+    icon: ['M3 12h18', 'M7 9l5-5 5 5z', 'M7 15l5 5 5-5z']
+  },
+  {
     key: 'auto-correct',
     label: '自动校正倾斜角',
     desc: '自动检测并摆正图片倾斜',
@@ -115,6 +134,30 @@ const actions: EditAction[] = [
       'M17.5 12h3.5',
       'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
     ]
+  },
+  {
+    key: 'grayscale',
+    label: '灰度',
+    desc: '将图片转换为黑白灰度效果',
+    variant: 'default',
+    icon: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 3v18', 'M12 7a5 5 0 0 1 0 10z']
+  },
+  {
+    key: 'vintage',
+    label: '复古',
+    desc: '为图片添加复古胶片色调',
+    variant: 'default',
+    icon: [
+      'M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z',
+      'M12 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z'
+    ]
+  },
+  {
+    key: 'sharpen',
+    label: '锐化',
+    desc: '加黑并锐化图片中的文字',
+    variant: 'default',
+    icon: ['M12 2 3 20h18z', 'M12 8v5', 'M12 16v.01']
   }
 ]
 
@@ -881,6 +924,49 @@ const rotate = async (angle: RotationAngle): Promise<void> => {
   }
 }
 
+const flip = async (direction: FlipDirection): Promise<void> => {
+  const target = image.value
+  if (!target || processing.value) return
+
+  processing.value = true
+  try {
+    const flippedDataUrl = await flipImage(target.dataUrl, direction)
+    const label = direction === 'horizontal' ? '水平翻转' : '垂直翻转'
+    const done = await persistState(target, flippedDataUrl, target.rotation, label)
+
+    flashNotice(done ? `已${label}，结果已保存到临时文件夹` : '写入临时文件夹失败，翻转结果未生效')
+  } catch (error) {
+    console.error(error)
+    flashNotice('翻转失败，请稍后重试')
+  } finally {
+    processing.value = false
+  }
+}
+
+const applyColorEffect = async (mode: 'grayscale' | 'vintage' | 'sharpen'): Promise<void> => {
+  const target = image.value
+  if (!target || processing.value) return
+
+  processing.value = true
+  try {
+    const dataUrl =
+      mode === 'grayscale'
+        ? await grayscaleImage(target.dataUrl)
+        : mode === 'vintage'
+          ? await vintageImage(target.dataUrl)
+          : await sharpenImage(target.dataUrl)
+    const label = mode === 'grayscale' ? '灰度' : mode === 'vintage' ? '复古' : '锐化'
+    const done = await persistState(target, dataUrl, target.rotation, label)
+
+    flashNotice(done ? `已应用${label}效果，结果已保存到临时文件夹` : '写入临时文件夹失败，效果未生效')
+  } catch (error) {
+    console.error(error)
+    flashNotice('效果处理失败，请稍后重试')
+  } finally {
+    processing.value = false
+  }
+}
+
 const autoDeskew = async (): Promise<void> => {
   const target = image.value
   if (!target || processing.value) return
@@ -1037,6 +1123,31 @@ const handleAction = (action: EditAction): void => {
     return
   }
 
+  if (action.key === 'flip-horizontal') {
+    void flip('horizontal')
+    return
+  }
+
+  if (action.key === 'flip-vertical') {
+    void flip('vertical')
+    return
+  }
+
+  if (action.key === 'grayscale') {
+    void applyColorEffect('grayscale')
+    return
+  }
+
+  if (action.key === 'vintage') {
+    void applyColorEffect('vintage')
+    return
+  }
+
+  if (action.key === 'sharpen') {
+    void applyColorEffect('sharpen')
+    return
+  }
+
   if (action.key === 'auto-correct') {
     void autoDeskew()
     return
@@ -1080,7 +1191,7 @@ const handleAction = (action: EditAction): void => {
         <button class="btn btn-sm" type="button" @click="goBack">← 返回列表</button>
         <div>
           <h2 class="page-title">{{ image ? image.name : '图片编辑' }}</h2>
-          <p class="page-description">调整图片方向与倾斜角度，确认后保留或去除。</p>
+          <!-- <p class="page-description">调整图片方向与倾斜角度，确认后保留或去除。</p> -->
         </div>
       </div>
     </div>
@@ -1183,24 +1294,34 @@ const handleAction = (action: EditAction): void => {
         </div>
 
         <div class="canvas">
-          <button
-            class="nav-arrow"
-            type="button"
-            title="前一图片（← / ↑）"
-            :disabled="!prevImage"
-            @click="goPrev"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
+          <div class="zoom-control" :class="{ 'is-dragging': zoomDragging }">
+            <span class="zoom-value">{{ zoom }}%</span>
+            <div
+              ref="zoomTrackRef"
+              class="zoom-track"
+              role="slider"
+              tabindex="0"
+              aria-label="图片缩放比例"
+              aria-orientation="vertical"
+              :aria-valuemin="MIN_ZOOM"
+              :aria-valuemax="MAX_ZOOM"
+              :aria-valuenow="zoom"
+              title="拖动或按方向键调整缩放（Ctrl + 滚轮也可缩放）"
+              @mousedown="startZoomDrag"
+              @dblclick="setZoom(ZOOM_FIT)"
+              @keydown="handleZoomKeydown"
             >
-              <path d="M15 5 8 12l7 7" />
-            </svg>
-            <!-- <span class="arrow-label">前一图片</span> -->
-          </button>
+              <span class="zoom-fill" :style="{ height: `${zoomRatio * 100}%` }"></span>
+              <span class="zoom-mark" :style="{ bottom: `${fitRatio * 100}%` }"></span>
+              <span class="zoom-handle" :style="{ bottom: `${zoomRatio * 100}%` }"></span>
+            </div>
+            <button class="zoom-btn" type="button" title="放大 10%" @click="stepZoom(ZOOM_STEP)">
+              +
+            </button>
+            <button class="zoom-btn" type="button" title="缩小 10%" @click="stepZoom(-ZOOM_STEP)">
+              −
+            </button>
+          </div>
 
           <div
             ref="stageRef"
@@ -1208,35 +1329,6 @@ const handleAction = (action: EditAction): void => {
             :class="{ picking, manual: manualMode }"
             @wheel="handleWheel"
           >
-            <div class="zoom-control" :class="{ 'is-dragging': zoomDragging }">
-              <span class="zoom-value">{{ zoom }}%</span>
-              <div
-                ref="zoomTrackRef"
-                class="zoom-track"
-                role="slider"
-                tabindex="0"
-                aria-label="图片缩放比例"
-                aria-orientation="vertical"
-                :aria-valuemin="MIN_ZOOM"
-                :aria-valuemax="MAX_ZOOM"
-                :aria-valuenow="zoom"
-                title="拖动或按方向键调整缩放（Ctrl + 滚轮也可缩放）"
-                @mousedown="startZoomDrag"
-                @dblclick="setZoom(ZOOM_FIT)"
-                @keydown="handleZoomKeydown"
-              >
-                <span class="zoom-fill" :style="{ height: `${zoomRatio * 100}%` }"></span>
-                <span class="zoom-mark" :style="{ bottom: `${fitRatio * 100}%` }"></span>
-                <span class="zoom-handle" :style="{ bottom: `${zoomRatio * 100}%` }"></span>
-              </div>
-              <button class="zoom-btn" type="button" title="放大 10%" @click="stepZoom(ZOOM_STEP)">
-                +
-              </button>
-              <button class="zoom-btn" type="button" title="缩小 10%" @click="stepZoom(-ZOOM_STEP)">
-                −
-              </button>
-            </div>
-
             <div class="stage-viewport">
               <div ref="frameRef" class="stage-frame" :style="frameStyle" @mousedown="startSelect">
                 <img
@@ -1306,24 +1398,45 @@ const handleAction = (action: EditAction): void => {
             </div>
           </div>
 
-          <button
-            class="nav-arrow"
-            type="button"
-            title="后一图片（→ / ↓）"
-            :disabled="!nextImage"
-            @click="goNext"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
+          <div class="stage-nav">
+            <button
+              class="nav-arrow"
+              type="button"
+              title="前一图片（← / ↑）"
+              :disabled="!prevImage"
+              @click="goPrev"
             >
-              <path d="M9 5l7 7-7 7" />
-            </svg>
-            <!-- <span class="arrow-label">后一图片</span> -->
-          </button>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M15 5 8 12l7 7" />
+              </svg>
+              <!-- <span class="arrow-label">前一图片</span> -->
+            </button>
+
+            <button
+              class="nav-arrow"
+              type="button"
+              title="后一图片（→ / ↓）"
+              :disabled="!nextImage"
+              @click="goNext"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
+              <!-- <span class="arrow-label">后一图片</span> -->
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1424,12 +1537,23 @@ const handleAction = (action: EditAction): void => {
 }
 
 .canvas {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
   gap: 12px;
   min-height: 460px;
   padding: 16px;
   background-color: var(--color-surface-soft);
+}
+
+.stage-nav {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
 }
 
 .canvas-stage {
@@ -1437,6 +1561,8 @@ const handleAction = (action: EditAction): void => {
   display: flex;
   align-items: stretch;
   justify-content: center;
+  grid-column: 2;
+  grid-row: 1;
   flex: 1;
   min-width: 0;
   min-height: 428px;
@@ -1474,18 +1600,18 @@ const handleAction = (action: EditAction): void => {
 }
 
 .zoom-control {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 12;
   display: flex;
   flex-direction: column;
   align-items: center;
+  align-self: flex-start;
+  flex-shrink: 0;
+  grid-column: 1;
+  grid-row: 1;
   gap: 8px;
   padding: 8px 6px;
   border: 1px solid var(--color-border-strong);
   border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.95);
+  background-color: var(--color-surface);
   box-shadow: 0 4px 14px rgba(15, 35, 66, 0.12);
   user-select: none;
 }
@@ -1734,12 +1860,12 @@ const handleAction = (action: EditAction): void => {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  flex-direction: column;
+  flex-direction: row;
   flex-shrink: 0;
-  width: 52px;
-  height: 76px;
+  width: 68px;
+  height: 30px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background-color: var(--color-surface);
   color: var(--color-text-2);
   transition:
@@ -1749,8 +1875,8 @@ const handleAction = (action: EditAction): void => {
 }
 
 .nav-arrow svg {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
 }
 
 .arrow-label {
@@ -2048,8 +2174,8 @@ const handleAction = (action: EditAction): void => {
   }
 
   .nav-arrow {
-    width: 38px;
-    height: 44px;
+    width: 60px;
+    height: 28px;
   }
 }
 </style>

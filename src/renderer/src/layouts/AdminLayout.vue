@@ -506,7 +506,7 @@ const handleSearch = (): void => {
 
 .content {
   flex: 1;
-  padding: 24px;
+  padding: 16px;
   overflow-y: auto;
 }
 

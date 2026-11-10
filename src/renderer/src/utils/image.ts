@@ -77,6 +77,31 @@ export async function rotateImage(dataUrl: string, angle: RotationAngle): Promis
   return canvas.toDataURL('image/png')
 }
 
+export type FlipDirection = 'horizontal' | 'vertical'
+
+export async function flipImage(dataUrl: string, direction: FlipDirection): Promise<string> {
+  const img = await loadImage(dataUrl)
+
+  const width = img.naturalWidth
+  const height = img.naturalHeight
+  if (!width || !height) throw new Error('图片尺寸无效')
+
+  const canvas = createCanvas(width, height)
+  const context = getContext(canvas)
+
+  if (direction === 'horizontal') {
+    context.translate(width, 0)
+    context.scale(-1, 1)
+  } else {
+    context.translate(0, height)
+    context.scale(1, -1)
+  }
+
+  context.drawImage(img, 0, 0, width, height)
+
+  return canvas.toDataURL('image/png')
+}
+
 interface SkewAnalysis {
   offsetsX: Float32Array
   offsetsY: Float32Array
@@ -309,13 +334,8 @@ const rotateByAngle = (image: HTMLImageElement, angleDeg: number, transparent: b
   if (!width || !height) throw new Error('图片尺寸无效')
 
   const radians = (angleDeg * Math.PI) / 180
-  const cos = Math.abs(Math.cos(radians))
-  const sin = Math.abs(Math.sin(radians))
 
-  const canvasWidth = Math.ceil(width * cos + height * sin)
-  const canvasHeight = Math.ceil(width * sin + height * cos)
-
-  const canvas = createCanvas(canvasWidth, canvasHeight)
+  const canvas = createCanvas(width, height)
   const context = getContext(canvas)
 
   context.imageSmoothingEnabled = true
@@ -323,10 +343,10 @@ const rotateByAngle = (image: HTMLImageElement, angleDeg: number, transparent: b
 
   if (!transparent) {
     context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, canvasWidth, canvasHeight)
+    context.fillRect(0, 0, width, height)
   }
 
-  context.translate(canvasWidth / 2, canvasHeight / 2)
+  context.translate(width / 2, height / 2)
   context.rotate(radians)
   context.drawImage(image, -width / 2, -height / 2, width, height)
 
@@ -406,6 +426,117 @@ export interface PixelSampler {
 export interface ColorRemovalResult {
   dataUrl: string
   changed: number
+}
+
+const VINTAGE_STRENGTH = 0.85
+
+export async function grayscaleImage(dataUrl: string): Promise<string> {
+  const sampler = await createPixelSampler(dataUrl)
+  const { data } = sampler.imageData
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue
+    const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2])
+    data[i] = gray
+    data[i + 1] = gray
+    data[i + 2] = gray
+  }
+
+  sampler.context.putImageData(sampler.imageData, 0, 0)
+
+  return sampler.canvas.toDataURL('image/png')
+}
+
+export async function vintageImage(dataUrl: string): Promise<string> {
+  const sampler = await createPixelSampler(dataUrl)
+  const { data } = sampler.imageData
+  const keep = 1 - VINTAGE_STRENGTH
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue
+
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+
+    const sepiaR = 0.393 * r + 0.769 * g + 0.189 * b
+    const sepiaG = 0.349 * r + 0.686 * g + 0.168 * b
+    const sepiaB = 0.272 * r + 0.534 * g + 0.131 * b
+
+    data[i] = Math.min(255, Math.round(r * keep + sepiaR * VINTAGE_STRENGTH))
+    data[i + 1] = Math.min(255, Math.round(g * keep + sepiaG * VINTAGE_STRENGTH))
+    data[i + 2] = Math.min(255, Math.round(b * keep + sepiaB * VINTAGE_STRENGTH))
+  }
+
+  sampler.context.putImageData(sampler.imageData, 0, 0)
+
+  return sampler.canvas.toDataURL('image/png')
+}
+
+const SHARPEN_AMOUNT = 0.9
+const TEXT_DARK_THRESHOLD = 160
+const TEXT_DARK_FACTOR = 0.7
+
+const gaussianBlur = (input: Uint8ClampedArray, width: number, height: number): Float32Array => {
+  const output = new Float32Array(width * height)
+  const weights = [1, 2, 1]
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let sum = 0
+      let wsum = 0
+      for (let ky = -1; ky <= 1; ky += 1) {
+        const ny = y + ky
+        if (ny < 0 || ny >= height) continue
+        for (let kx = -1; kx <= 1; kx += 1) {
+          const nx = x + kx
+          if (nx < 0 || nx >= width) continue
+          const idx = (ny * width + nx) * 4
+          const gray = 0.299 * input[idx] + 0.587 * input[idx + 1] + 0.114 * input[idx + 2]
+          const w = weights[ky + 1] * weights[kx + 1]
+          sum += gray * w
+          wsum += w
+        }
+      }
+      output[y * width + x] = sum / wsum
+    }
+  }
+
+  return output
+}
+
+export async function sharpenImage(dataUrl: string): Promise<string> {
+  const sampler = await createPixelSampler(dataUrl)
+  const { data, width, height } = sampler.imageData
+
+  const blurred = gaussianBlur(data, width, height)
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4
+      if (data[idx + 3] === 0) continue
+
+      const origGray = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+      const blurredGray = blurred[y * width + x]
+
+      let sharpened = origGray + SHARPEN_AMOUNT * (origGray - blurredGray)
+
+      if (origGray < TEXT_DARK_THRESHOLD) {
+        sharpened = sharpened * TEXT_DARK_FACTOR
+      }
+
+      const result = Math.max(0, Math.min(255, Math.round(sharpened)))
+      const factor = result / Math.max(1, origGray)
+
+      data[idx] = Math.min(255, Math.round(data[idx] * factor))
+      data[idx + 1] = Math.min(255, Math.round(data[idx + 1] * factor))
+      data[idx + 2] = Math.min(255, Math.round(data[idx + 2] * factor))
+    }
+  }
+
+  sampler.context.putImageData(sampler.imageData, 0, 0)
+
+  return sampler.canvas.toDataURL('image/png')
 }
 
 export async function createPixelSampler(dataUrl: string): Promise<PixelSampler> {
