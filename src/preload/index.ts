@@ -44,6 +44,15 @@ const api = {
   deleteArcFieldInfo: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('arcFieldInfo:delete', payload),
 
+  // batInfo 批次 CRUD
+  listBatInfo: (): Promise<unknown> => ipcRenderer.invoke('batInfo:list'),
+  createBatInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('batInfo:create', payload),
+  updateBatInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('batInfo:update', payload),
+  deleteBatInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('batInfo:delete', payload),
+
   onPdfExportProgress: (callback: (progress: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void =>
       callback(progress)

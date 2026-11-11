@@ -9,19 +9,23 @@ import {
   closeDatabase,
   createArcFieldInfo,
   createArcType,
+  createBatInfoWithSnapshot,
   deleteArcFieldInfo,
   deleteArcType,
+  deleteBatInfo,
   deleteConfig,
   getArcType,
   getConfig,
   initializeDatabase,
   listArcFieldInfo,
   listArcType,
+  listBatInfo,
   listConfig,
   setConfig,
   updateArcFieldInfo,
-  updateArcType
-} from './db'
+  updateArcType,
+  updateBatInfoWithSnapshot
+} from './db/index'
 
 const ASSET_SCHEME = 'app-asset'
 const ASSET_HOST = 'local'
@@ -479,6 +483,64 @@ app.whenReady().then(() => {
   ipcMain.handle('arcFieldInfo:delete', (_event, payload: { fieldId: string }) => {
     try {
       return { ok: true, removed: deleteArcFieldInfo(payload.fieldId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // batInfo 批次 CRUD（新增/修改走带字段快照的编排方法）
+  ipcMain.handle('batInfo:list', () => {
+    try {
+      return { ok: true, items: listBatInfo() }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'batInfo:create',
+    (_event, payload: { arcTypeId: string; status?: number; sortNo?: number; memo?: string }) => {
+      try {
+        return {
+          ok: true,
+          item: createBatInfoWithSnapshot({
+            arcTypeId: payload.arcTypeId,
+            status: payload.status,
+            sortNo: payload.sortNo,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'batInfo:update',
+    (
+      _event,
+      payload: { batId: string; arcTypeId: string; status?: number; sortNo?: number; memo?: string }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: updateBatInfoWithSnapshot(payload.batId, {
+            arcTypeId: payload.arcTypeId,
+            status: payload.status,
+            sortNo: payload.sortNo,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('batInfo:delete', (_event, payload: { batId: string }) => {
+    try {
+      return { ok: true, removed: deleteBatInfo(payload.batId) }
     } catch (error) {
       return dbError(error)
     }

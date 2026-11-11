@@ -300,6 +300,52 @@ export interface ArcFieldInfoDeleteResult {
   message?: string
 }
 
+// ---------- batInfo 批次 ----------
+
+export interface BatInfoRow {
+  batId: string
+  batCode: string
+  arcTypeId: string
+  arcTypeName: string
+  timeOfCreate: string
+  status: number
+  sortNo: number
+  memo: string
+}
+
+export interface BatInfoListResult {
+  ok: boolean
+  items?: BatInfoRow[]
+  message?: string
+}
+
+export interface BatInfoSavePayload {
+  arcTypeId: string
+  status?: number
+  sortNo?: number
+  memo?: string
+}
+
+export interface BatInfoUpdatePayload extends BatInfoSavePayload {
+  batId: string
+}
+
+export interface BatInfoSaveResult {
+  ok: boolean
+  item?: BatInfoRow | null
+  message?: string
+}
+
+export interface BatInfoDeletePayload {
+  batId: string
+}
+
+export interface BatInfoDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -326,6 +372,10 @@ export interface RendererApi {
   createArcFieldInfo: (payload: ArcFieldInfoSavePayload) => Promise<ArcFieldInfoCreateResult>
   updateArcFieldInfo: (payload: ArcFieldInfoUpdatePayload) => Promise<ArcFieldInfoUpdateResult>
   deleteArcFieldInfo: (payload: ArcFieldInfoDeletePayload) => Promise<ArcFieldInfoDeleteResult>
+  listBatInfo: () => Promise<BatInfoListResult>
+  createBatInfo: (payload: BatInfoSavePayload) => Promise<BatInfoSaveResult>
+  updateBatInfo: (payload: BatInfoUpdatePayload) => Promise<BatInfoSaveResult>
+  deleteBatInfo: (payload: BatInfoDeletePayload) => Promise<BatInfoDeleteResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 

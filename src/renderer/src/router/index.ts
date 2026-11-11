@@ -50,6 +50,12 @@ const router = createRouter({
           name: 'archives-type-fields',
           component: () => import('../views/ArchivesFieldsView.vue'),
           meta: { title: '档案字段定义' }
+        },
+        {
+          path: 'batches',
+          name: 'batches',
+          component: () => import('../views/BatInfoView.vue'),
+          meta: { title: '批次管理' }
         }
       ]
     }
