@@ -346,6 +346,67 @@ export interface BatInfoDeleteResult {
   message?: string
 }
 
+export interface BatInfoGetPayload {
+  batId: string
+}
+
+export interface BatInfoGetResult {
+  ok: boolean
+  item?: BatInfoRow | null
+  message?: string
+}
+
+// ---------- batArcFieldInfo 批次字段快照 ----------
+
+export interface BatArcFieldInfoRow {
+  id: string
+  batId: string
+  sortNo: number
+  fieldName: string
+  fieldType: string
+  isRequired: number
+  memo: string
+}
+
+export interface BatArcFieldInfoListPayload {
+  batId: string
+}
+
+export interface BatArcFieldInfoListResult {
+  ok: boolean
+  items?: BatArcFieldInfoRow[]
+  message?: string
+}
+
+export interface BatArcFieldInfoSavePayload {
+  batId: string
+  sortNo: number
+  fieldName: string
+  fieldType: string
+  isRequired: number
+  memo?: string
+}
+
+export interface BatArcFieldInfoUpdatePayload extends BatArcFieldInfoSavePayload {
+  id: string
+}
+
+export interface BatArcFieldInfoSaveResult {
+  ok: boolean
+  item?: BatArcFieldInfoRow | null
+  message?: string
+}
+
+export interface BatArcFieldInfoDeletePayload {
+  id: string
+}
+
+export interface BatArcFieldInfoDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -376,6 +437,15 @@ export interface RendererApi {
   createBatInfo: (payload: BatInfoSavePayload) => Promise<BatInfoSaveResult>
   updateBatInfo: (payload: BatInfoUpdatePayload) => Promise<BatInfoSaveResult>
   deleteBatInfo: (payload: BatInfoDeletePayload) => Promise<BatInfoDeleteResult>
+  getBatInfo: (payload: BatInfoGetPayload) => Promise<BatInfoGetResult>
+  listBatArcFieldInfo: (payload: BatArcFieldInfoListPayload) => Promise<BatArcFieldInfoListResult>
+  createBatArcFieldInfo: (payload: BatArcFieldInfoSavePayload) => Promise<BatArcFieldInfoSaveResult>
+  updateBatArcFieldInfo: (
+    payload: BatArcFieldInfoUpdatePayload
+  ) => Promise<BatArcFieldInfoSaveResult>
+  deleteBatArcFieldInfo: (
+    payload: BatArcFieldInfoDeletePayload
+  ) => Promise<BatArcFieldInfoDeleteResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 

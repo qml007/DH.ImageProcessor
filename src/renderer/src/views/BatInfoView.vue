@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 interface BatInfoRow {
   batId: string
@@ -189,6 +192,17 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
               <td class="mono-cell">{{ row.sortNo }}</td>
               <td class="memo-cell">{{ row.memo || '—' }}</td>
               <td class="col-actions">
+                <button
+                  class="icon-btn-inline primary"
+                  type="button"
+                  title="进入批次"
+                  @click="router.push(`/batches/${row.batId}/fields`)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                </button>
                 <button class="icon-btn-inline" type="button" title="编辑" @click="openEdit(row)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 20h9" />
@@ -371,6 +385,15 @@ textarea.input {
 .icon-btn-inline.danger:hover {
   color: var(--color-danger);
   background-color: rgba(239, 68, 68, 0.08);
+}
+
+.icon-btn-inline.primary {
+  color: var(--color-primary);
+}
+
+.icon-btn-inline.primary:hover {
+  background-color: var(--color-primary);
+  color: #fff;
 }
 
 .icon-btn-inline svg {

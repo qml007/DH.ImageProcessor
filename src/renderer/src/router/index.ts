@@ -56,6 +56,12 @@ const router = createRouter({
           name: 'batches',
           component: () => import('../views/BatInfoView.vue'),
           meta: { title: '批次管理' }
+        },
+        {
+          path: 'batches/:batId/fields',
+          name: 'batch-fields',
+          component: () => import('../views/BatFieldsView.vue'),
+          meta: { title: '批次字段' }
         }
       ]
     }

@@ -9,21 +9,26 @@ import {
   closeDatabase,
   createArcFieldInfo,
   createArcType,
+  createBatArcFieldInfo,
   createBatInfoWithSnapshot,
   deleteArcFieldInfo,
   deleteArcType,
+  deleteBatArcFieldInfo,
   deleteBatInfo,
   deleteConfig,
   getArcType,
+  getBatInfo,
   getConfig,
   initializeDatabase,
   listArcFieldInfo,
   listArcType,
+  listBatArcFieldInfo,
   listBatInfo,
   listConfig,
   setConfig,
   updateArcFieldInfo,
   updateArcType,
+  updateBatArcFieldInfo,
   updateBatInfoWithSnapshot
 } from './db/index'
 
@@ -541,6 +546,75 @@ app.whenReady().then(() => {
   ipcMain.handle('batInfo:delete', (_event, payload: { batId: string }) => {
     try {
       return { ok: true, removed: deleteBatInfo(payload.batId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle('batInfo:get', (_event, payload: { batId: string }) => {
+    try {
+      return { ok: true, item: getBatInfo(payload.batId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // batArcFieldInfo 批次字段快照 CRUD
+  ipcMain.handle('batArcFieldInfo:list', (_event, payload: { batId: string }) => {
+    try {
+      return { ok: true, items: listBatArcFieldInfo(payload.batId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'batArcFieldInfo:create',
+    (
+      _event,
+      payload: {
+        batId: string
+        sortNo: number
+        fieldName: string
+        fieldType: string
+        isRequired: number
+        memo?: string
+      }
+    ) => {
+      try {
+        return { ok: true, item: createBatArcFieldInfo(payload) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'batArcFieldInfo:update',
+    (
+      _event,
+      payload: {
+        id: string
+        batId: string
+        sortNo: number
+        fieldName: string
+        fieldType: string
+        isRequired: number
+        memo?: string
+      }
+    ) => {
+      try {
+        const { id, ...input } = payload
+        return { ok: true, item: updateBatArcFieldInfo(id, input) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('batArcFieldInfo:delete', (_event, payload: { id: string }) => {
+    try {
+      return { ok: true, removed: deleteBatArcFieldInfo(payload.id) }
     } catch (error) {
       return dbError(error)
     }
