@@ -47,14 +47,26 @@ export interface OpenTempDirResult {
 }
 
 export interface SaveTempImagePayload {
-  id: string
+  arcId: string
+  imageId: string
+  seqNo: number
   dataUrl: string
-  slot?: string
 }
 
 export interface SaveTempImageResult {
   ok: boolean
-  path?: string
+  /** 相对于临时文件夹的路径，如 arc/{arcId}/{imageId}/{seqNo}.png */
+  relPath?: string
+  message?: string
+}
+
+export interface ReadImageFilePayload {
+  path: string
+}
+
+export interface ReadImageFileResult {
+  ok: boolean
+  dataUrl?: string
   message?: string
 }
 
@@ -407,6 +419,233 @@ export interface BatArcFieldInfoDeleteResult {
   message?: string
 }
 
+// ---------- 档案 arcInfo ----------
+
+export interface ArcInfoRow {
+  arcId: string
+  batId: string
+  arcName: string
+  sortNo: number
+  status: number
+  timeOfCreate: string
+  memo: string
+}
+
+export interface ArcInfoListPayload {
+  batId: string
+}
+
+export interface ArcInfoListResult {
+  ok: boolean
+  items?: ArcInfoRow[]
+  message?: string
+}
+
+export interface ArcInfoSavePayload {
+  batId: string
+  arcName: string
+  sortNo?: number
+  status?: number
+  memo?: string
+}
+
+export interface ArcInfoUpdatePayload {
+  arcId: string
+  arcName?: string
+  sortNo?: number
+  status?: number
+  memo?: string
+}
+
+export interface ArcInfoSaveResult {
+  ok: boolean
+  item?: ArcInfoRow | null
+  message?: string
+}
+
+export interface ArcInfoDeletePayload {
+  arcId: string
+}
+
+export interface ArcInfoDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
+// ---------- 档案图像 arcImage ----------
+
+export interface ArcImageRow {
+  imageId: string
+  arcId: string
+  sortNo: number
+  sourcePath: string
+  fileName: string
+  ext: string
+  size: number
+  isPdf: number
+  pdfPageIndex: number
+  pdfPageCount: number
+  currentHistoryId: string
+  rotation: number
+  timeOfCreate: string
+}
+
+export interface ArcImageInput {
+  arcId: string
+  sortNo: number
+  sourcePath: string
+  fileName: string
+  ext: string
+  size?: number
+  isPdf?: number
+  pdfPageIndex?: number
+  pdfPageCount?: number
+}
+
+export interface ArcImageListPayload {
+  arcId: string
+}
+
+export interface ArcImageListResult {
+  ok: boolean
+  items?: ArcImageRow[]
+  message?: string
+}
+
+export interface ArcImageCountPayload {
+  arcIds: string[]
+}
+
+export interface ArcImageCountRow {
+  arcId: string
+  count: number
+}
+
+export interface ArcImageCountResult {
+  ok: boolean
+  items?: ArcImageCountRow[]
+  message?: string
+}
+
+export interface ArcImageCreateBatchPayload {
+  items: ArcImageInput[]
+}
+
+export interface ArcImageCreateBatchResult {
+  ok: boolean
+  items?: ArcImageRow[]
+  message?: string
+}
+
+export interface ArcImageUpdatePayload {
+  imageId: string
+  arcId?: string
+  sortNo?: number
+  currentHistoryId?: string | null
+  rotation?: number
+}
+
+export interface ArcImageSaveResult {
+  ok: boolean
+  item?: ArcImageRow | null
+  message?: string
+}
+
+export interface ArcImageDeletePayload {
+  imageId: string
+}
+
+export interface ArcImageDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
+// ---------- 图像处理历史 arcImageHistory ----------
+
+export interface ArcImageHistoryRow {
+  historyId: string
+  imageId: string
+  seqNo: number
+  tempRelPath: string
+  rotation: number
+  actionLabel: string
+  timeOfCreate: string
+}
+
+export interface ArcImageHistoryListPayload {
+  imageId: string
+}
+
+export interface ArcImageHistoryListResult {
+  ok: boolean
+  items?: ArcImageHistoryRow[]
+  message?: string
+}
+
+export interface ArcImageHistoryCreatePayload {
+  imageId: string
+  seqNo: number
+  tempRelPath: string
+  rotation: number
+  actionLabel?: string
+}
+
+export interface ArcImageHistoryCreateResult {
+  ok: boolean
+  item?: ArcImageHistoryRow
+  message?: string
+}
+
+export interface ArcImageHistoryTruncatePayload {
+  imageId: string
+  seqNo: number
+}
+
+export interface ArcImageHistoryTruncateResult {
+  ok: boolean
+  discarded?: ArcImageHistoryRow[]
+  message?: string
+}
+
+// ---------- 档案字段值 arcFieldValue ----------
+
+export interface ArcFieldValueRow {
+  valueId: string
+  arcId: string
+  batFieldId: string
+  fieldName: string
+  fieldValue: string
+}
+
+export interface ArcFieldValueListPayload {
+  arcId: string
+}
+
+export interface ArcFieldValueListResult {
+  ok: boolean
+  items?: ArcFieldValueRow[]
+  message?: string
+}
+
+export interface ArcFieldValueUpsertItem {
+  arcId: string
+  batFieldId: string
+  fieldName: string
+  fieldValue: string
+}
+
+export interface ArcFieldValueUpsertPayload {
+  items: ArcFieldValueUpsertItem[]
+}
+
+export interface ArcFieldValueUpsertResult {
+  ok: boolean
+  items?: ArcFieldValueRow[]
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -446,6 +685,31 @@ export interface RendererApi {
   deleteBatArcFieldInfo: (
     payload: BatArcFieldInfoDeletePayload
   ) => Promise<BatArcFieldInfoDeleteResult>
+  readImageFile: (payload: ReadImageFilePayload) => Promise<ReadImageFileResult>
+  listArcInfo: (payload: ArcInfoListPayload) => Promise<ArcInfoListResult>
+  createArcInfo: (payload: ArcInfoSavePayload) => Promise<ArcInfoSaveResult>
+  updateArcInfo: (payload: ArcInfoUpdatePayload) => Promise<ArcInfoSaveResult>
+  deleteArcInfo: (payload: ArcInfoDeletePayload) => Promise<ArcInfoDeleteResult>
+  listArcImage: (payload: ArcImageListPayload) => Promise<ArcImageListResult>
+  countArcImage: (payload: ArcImageCountPayload) => Promise<ArcImageCountResult>
+  createArcImageBatch: (
+    payload: ArcImageCreateBatchPayload
+  ) => Promise<ArcImageCreateBatchResult>
+  updateArcImage: (payload: ArcImageUpdatePayload) => Promise<ArcImageSaveResult>
+  deleteArcImage: (payload: ArcImageDeletePayload) => Promise<ArcImageDeleteResult>
+  listArcImageHistory: (
+    payload: ArcImageHistoryListPayload
+  ) => Promise<ArcImageHistoryListResult>
+  createArcImageHistory: (
+    payload: ArcImageHistoryCreatePayload
+  ) => Promise<ArcImageHistoryCreateResult>
+  truncateArcImageHistory: (
+    payload: ArcImageHistoryTruncatePayload
+  ) => Promise<ArcImageHistoryTruncateResult>
+  listArcFieldValue: (payload: ArcFieldValueListPayload) => Promise<ArcFieldValueListResult>
+  upsertArcFieldValue: (
+    payload: ArcFieldValueUpsertPayload
+  ) => Promise<ArcFieldValueUpsertResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 

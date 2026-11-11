@@ -73,6 +73,63 @@ const createSchema = (db: Database.Database): void => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_batArcFieldInfo_batId ON batArcFieldInfo(batId);
+
+    CREATE TABLE IF NOT EXISTS arcInfo (
+      arcId TEXT PRIMARY KEY NOT NULL,
+      batId TEXT NOT NULL,
+      arcName TEXT NOT NULL,
+      sortNo INTEGER NOT NULL DEFAULT 0,
+      status INTEGER NOT NULL DEFAULT 0,
+      timeOfCreate TEXT NOT NULL,
+      memo TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_arcInfo_bat_name ON arcInfo(batId, arcName);
+
+    CREATE TABLE IF NOT EXISTS arcImage (
+      imageId TEXT PRIMARY KEY NOT NULL,
+      arcId TEXT NOT NULL,
+      sortNo INTEGER NOT NULL DEFAULT 0,
+      sourcePath TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      ext TEXT NOT NULL,
+      size INTEGER NOT NULL DEFAULT 0,
+      isPdf INTEGER NOT NULL DEFAULT 0,
+      pdfPageIndex INTEGER NOT NULL DEFAULT 0,
+      pdfPageCount INTEGER NOT NULL DEFAULT 0,
+      currentHistoryId TEXT,
+      rotation REAL NOT NULL DEFAULT 0,
+      timeOfCreate TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_arcImage_arcId ON arcImage(arcId);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_arcImage_source
+      ON arcImage(arcId, sourcePath, pdfPageIndex);
+
+    CREATE TABLE IF NOT EXISTS arcImageHistory (
+      historyId TEXT PRIMARY KEY NOT NULL,
+      imageId TEXT NOT NULL,
+      seqNo INTEGER NOT NULL,
+      tempRelPath TEXT NOT NULL,
+      rotation REAL NOT NULL DEFAULT 0,
+      actionLabel TEXT,
+      timeOfCreate TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_arcImageHistory_imageId ON arcImageHistory(imageId);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_arcImageHistory_seq ON arcImageHistory(imageId, seqNo);
+
+    CREATE TABLE IF NOT EXISTS arcFieldValue (
+      valueId TEXT PRIMARY KEY NOT NULL,
+      arcId TEXT NOT NULL,
+      batFieldId TEXT NOT NULL,
+      fieldName TEXT NOT NULL,
+      fieldValue TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_arcFieldValue_arcId ON arcFieldValue(arcId);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_arcFieldValue_arc_field
+      ON arcFieldValue(arcId, batFieldId);
   `)
 }
 

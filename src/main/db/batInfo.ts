@@ -3,6 +3,7 @@ import { generateSnowflakeId, BAT_STATUS_IN_PROGRESS } from './common'
 import { getArcType } from './arcType'
 import { listArcFieldInfo } from './arcFieldInfo'
 import { deleteBatArcFieldInfoByBatId, snapshotArcFieldsToBatch } from './batArcFieldInfo'
+import { deleteArcInfoByBat } from './arcInfo'
 
 export interface BatInfoRow {
   batId: string
@@ -162,9 +163,10 @@ export function updateBatInfo(
 }
 
 export function deleteBatInfo(batId: string): number {
-  // 级联删除该批次的字段快照
+  // 级联删除该批次的档案（含图像、历史版本）与字段快照
   const db = getDatabase()
   const tx = db.transaction((id: string): number => {
+    deleteArcInfoByBat(id)
     db.prepare('DELETE FROM batArcFieldInfo WHERE batId = ?').run(id)
     return db.prepare('DELETE FROM batInfo WHERE batId = ?').run(id).changes
   })

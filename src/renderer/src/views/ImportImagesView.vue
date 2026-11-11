@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { imageStore, type Archive, type EditableImage } from '../stores/imageStore'
+import { imageStore, type Archive, type AddImageItem, type EditableImage } from '../stores/imageStore'
 import type {
-  ImportedImage,
   OpenImagesResult,
   PdfExportArchive,
   PdfExportArchiveResult,
@@ -25,6 +24,62 @@ const viewMode = ref<'grid' | 'list'>('grid')
 const loading = ref(false)
 const message = ref('')
 const pdfProgress = ref('')
+
+interface BatchOption {
+  batId: string
+  batCode: string
+  arcTypeName: string
+  status: number
+}
+
+const batches = ref<BatchOption[]>([])
+const batchId = ref(imageStore.batId)
+
+const loadBatches = async (): Promise<void> => {
+  try {
+    const result = await window.api.listBatInfo()
+    if (result.ok) {
+      batches.value = (result.items ?? []).map((item) => ({
+        batId: item.batId,
+        batCode: item.batCode,
+        arcTypeName: item.arcTypeName,
+        status: item.status
+      }))
+    }
+
+    if (!batchId.value && batches.value.length) {
+      batchId.value = batches.value[0].batId
+    }
+
+    if (batchId.value && batchId.value !== imageStore.batId) {
+      await imageStore.setBatch(batchId.value)
+    } else {
+      await imageStore.restore()
+    }
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const onBatchChange = async (): Promise<void> => {
+  if (!batchId.value) return
+  await imageStore.setBatch(batchId.value)
+  clearSelection()
+  resetMark()
+}
+
+// 从数据库加载的图像未带内容，进入页面或切换档案后按需补齐缩略图
+watch(
+  () => images.value.map((item) => item.id).join('|'),
+  async () => {
+    for (const item of images.value) {
+      if (!item.dataUrl) {
+        await imageStore.ensureImageData(item.id)
+      }
+    }
+  },
+  { immediate: true }
+)
 
 const creatingArchive = ref(false)
 const newArchiveName = ref('')
@@ -61,9 +116,7 @@ const exportPercent = computed(() => {
 })
 
 const exportTargets = computed(() =>
-  archives.value.filter(
-    (item) => item.id !== imageStore.defaultArchiveId && imageStore.countOf(item.id) > 0
-  )
+  archives.value.filter((item) => imageStore.countOf(item.id) > 0)
 )
 
 const totalSize = computed(() => images.value.reduce((sum, item) => sum + item.size, 0))
@@ -100,18 +153,21 @@ const importPdfFile = async (
 
   const archiveName = pdfArchiveName(source.name)
   const existing = archives.value.find((item) => item.name.trim() === archiveName)
-  const archive = existing ?? imageStore.addArchive(archiveName)
+  const archive = existing ?? (await imageStore.addArchive(archiveName))
   imageStore.selectArchive(archive.id)
 
-  const list: ImportedImage[] = pages.map((item) => ({
+  const list: AddImageItem[] = pages.map((item) => ({
     path: `${source.path}#page=${item.page}`,
     name: `${archiveName}_${String(item.page).padStart(3, '0')}.jpg`,
     ext: 'jpg',
     size: item.size,
-    dataUrl: item.dataUrl
+    dataUrl: item.dataUrl,
+    isPdf: 1,
+    pdfPageIndex: item.page,
+    pdfPageCount: pages.length
   }))
 
-  return imageStore.add(list).added
+  return (await imageStore.add(list, archive.id)).added
 }
 
 const applyImported = async (result: OpenImagesResult): Promise<void> => {
@@ -127,7 +183,7 @@ const applyImported = async (result: OpenImagesResult): Promise<void> => {
   let pdfFailed = 0
 
   if (result.images.length) {
-    const summary = imageStore.add(result.images)
+    const summary = await imageStore.add(result.images)
     added += summary.added
     skipped += summary.skipped
   }
@@ -217,10 +273,16 @@ const applyExportProgress = (progress: PdfExportProgress): void => {
 }
 
 const prepareArchiveImages = async (archiveId: string): Promise<string[]> => {
+  // 未加载过的档案（如未在列表中选中过）先从数据库补齐图像
+  await imageStore.ensureArchiveLoaded(archiveId)
   const source = imageStore.imagesOf(archiveId)
   const prepared: string[] = []
 
   for (const image of source) {
+    if (!image.dataUrl) {
+      await imageStore.ensureImageData(image.id)
+    }
+
     if (isPdfReadyDataUrl(image.dataUrl)) {
       prepared.push(image.dataUrl)
       continue
@@ -374,8 +436,8 @@ const closeExportModal = (): void => {
   exportState.visible = false
 }
 
-const removeImage = (target: EditableImage): void => {
-  imageStore.remove(target.id)
+const removeImage = async (target: EditableImage): Promise<void> => {
+  await imageStore.remove(target.id)
   selectedIds.value = selectedIds.value.filter((item) => item !== target.id)
 
   if (markAnchorId.value === target.id) {
@@ -386,8 +448,8 @@ const removeImage = (target: EditableImage): void => {
   if (currentImageId.value === target.id) currentImageId.value = null
 }
 
-const clearAll = (): void => {
-  imageStore.clear()
+const clearAll = async (): Promise<void> => {
+  await imageStore.clear()
   clearSelection()
   resetMark()
 }
@@ -444,7 +506,7 @@ const startRangeMark = (): void => {
   flashMessage(`已标记起点「${name}」，移动到结束图像后按 F8 完成`)
 }
 
-const finishRangeMark = (): void => {
+const finishRangeMark = async (): Promise<void> => {
   const ids = markAnchorId.value
     ? rangeIds(markAnchorId.value, currentImageId.value ?? markAnchorId.value)
     : [...selectedIds.value]
@@ -456,8 +518,8 @@ const finishRangeMark = (): void => {
   }
 
   const previousArchiveId = activeArchiveId.value
-  const archive = imageStore.addArchive('')
-  const moved = imageStore.moveImages(targets, archive.id)
+  const archive = await imageStore.addArchive('')
+  const moved = await imageStore.moveImages(targets, archive.id)
 
   imageStore.selectArchive(previousArchiveId)
   clearSelection()
@@ -493,6 +555,7 @@ let unsubscribeProgress: (() => void) | null = null
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   unsubscribeProgress = window.api.onPdfExportProgress(applyExportProgress)
+  void loadBatches()
 })
 
 onBeforeUnmount(() => {
@@ -511,10 +574,14 @@ const cancelCreateArchive = (): void => {
   newArchiveName.value = ''
 }
 
-const confirmCreateArchive = (): void => {
-  const archive = imageStore.addArchive(newArchiveName.value)
-  cancelCreateArchive()
-  flashMessage(`已新增档案「${archive.name}」`)
+const confirmCreateArchive = async (): Promise<void> => {
+  try {
+    const archive = await imageStore.addArchive(newArchiveName.value)
+    cancelCreateArchive()
+    flashMessage(`已新增档案「${archive.name}」`)
+  } catch (error) {
+    flashMessage(error instanceof Error ? error.message : '新增档案失败')
+  }
 }
 
 const selectArchive = (id: string): void => {
@@ -524,14 +591,14 @@ const selectArchive = (id: string): void => {
   resetMark()
 }
 
-const deleteArchive = (): void => {
+const deleteArchive = async (): Promise<void> => {
   if (archives.value.length <= 1) {
     flashMessage('至少需要保留一个档案')
     return
   }
 
   const name = activeArchiveName.value
-  const removed = imageStore.removeArchive(activeArchiveId.value)
+  const removed = await imageStore.removeArchive(activeArchiveId.value)
 
   clearSelection()
   resetMark()
@@ -548,7 +615,7 @@ const cancelRenameArchive = (): void => {
   editingArchiveName.value = ''
 }
 
-const confirmRenameArchive = (): void => {
+const confirmRenameArchive = async (): Promise<void> => {
   const id = editingArchiveId.value
   if (!id) return
 
@@ -565,7 +632,7 @@ const confirmRenameArchive = (): void => {
     return
   }
 
-  if (!imageStore.renameArchive(id, name)) {
+  if (!(await imageStore.renameArchive(id, name))) {
     flashMessage(`档案「${name}」已存在，请换一个名称`)
     return
   }
@@ -609,7 +676,7 @@ const onArchiveDragLeave = (archiveId: string): void => {
   if (dragOverArchiveId.value === archiveId) dragOverArchiveId.value = null
 }
 
-const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
+const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void> => {
   event.preventDefault()
 
   const ids = dragIds.value.length
@@ -626,7 +693,7 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
     return
   }
 
-  const moved = imageStore.moveImages(ids, archiveId)
+  const moved = await imageStore.moveImages(ids, archiveId)
   if (!moved) {
     flashMessage('移动失败，请稍后重试')
     return
@@ -651,6 +718,20 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
         </p>
       </div>
       <div class="page-actions">
+        <div class="batch-select">
+          <span class="batch-label">批次</span>
+          <select
+            v-model="batchId"
+            class="input batch-input"
+            title="选择批次后，档案与图像都会挂在所选批次下"
+            @change="onBatchChange"
+          >
+            <option value="" disabled>请选择批次</option>
+            <option v-for="b in batches" :key="b.batId" :value="b.batId">
+              {{ b.batCode }} · {{ b.arcTypeName }}
+            </option>
+          </select>
+        </div>
         <div class="view-switch">
           <button type="button" :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">
             缩略图
@@ -660,10 +741,15 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
           </button>
         </div>
         <button class="btn" type="button" :disabled="!images.length" @click="clearAll">清空</button>
-        <button class="btn btn-primary" type="button" :disabled="loading" @click="importImages">
+        <button
+          class="btn btn-primary"
+          type="button"
+          :disabled="loading || !batchId"
+          @click="importImages"
+        >
           {{ loading ? '读取中...' : '导入图像/PDF' }}
         </button>
-        <button class="btn" type="button" :disabled="loading" @click="importFolder">
+        <button class="btn" type="button" :disabled="loading || !batchId" @click="importFolder">
           {{ loading ? '读取中...' : '导入文件夹' }}
         </button>
         <button
@@ -1054,6 +1140,24 @@ const onArchiveDrop = (archiveId: string, event: DragEvent): void => {
 .archive-item.active .archive-count {
   background-color: var(--color-surface);
   color: var(--color-primary);
+}
+
+.batch-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-label {
+  font-size: 12px;
+  color: var(--color-text-3);
+  white-space: nowrap;
+}
+
+.batch-input {
+  width: 220px;
+  height: 32px;
+  font-size: 13px;
 }
 
 .view-switch {

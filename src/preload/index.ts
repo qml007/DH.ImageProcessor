@@ -11,6 +11,8 @@ const api = {
   openTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:open-temp-dir'),
   saveTempImage: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:save-temp', payload),
+  readImageFile: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('image:read-file', payload),
   readTempImage: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:read-temp', payload),
   deleteTempImages: (payload: unknown): Promise<unknown> =>
@@ -64,6 +66,42 @@ const api = {
     ipcRenderer.invoke('batArcFieldInfo:update', payload),
   deleteBatArcFieldInfo: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('batArcFieldInfo:delete', payload),
+
+  // arcInfo 档案
+  listArcInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcInfo:list', payload),
+  createArcInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcInfo:create', payload),
+  updateArcInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcInfo:update', payload),
+  deleteArcInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcInfo:delete', payload),
+
+  // arcImage 档案图像
+  listArcImage: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImage:list', payload),
+  countArcImage: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImage:count', payload),
+  createArcImageBatch: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImage:create-batch', payload),
+  updateArcImage: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImage:update', payload),
+  deleteArcImage: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImage:delete', payload),
+
+  // arcImageHistory 图像处理历史
+  listArcImageHistory: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImageHistory:list', payload),
+  createArcImageHistory: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImageHistory:create', payload),
+  truncateArcImageHistory: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcImageHistory:truncate', payload),
+
+  // arcFieldValue 档案字段值
+  listArcFieldValue: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldValue:list', payload),
+  upsertArcFieldValue: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldValue:upsert', payload),
 
   onPdfExportProgress: (callback: (progress: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void =>

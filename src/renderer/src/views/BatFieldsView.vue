@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { imageStore } from '../stores/imageStore'
 
 interface BatInfoRow {
   batId: string
@@ -23,6 +24,16 @@ interface BatFieldRow {
   memo: string
 }
 
+interface ArcInfoItem {
+  arcId: string
+  batId: string
+  arcName: string
+  sortNo: number
+  status: number
+  timeOfCreate: string
+  memo: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const batId = String(route.params.batId ?? '')
@@ -31,6 +42,10 @@ const bat = ref<BatInfoRow | null>(null)
 const items = ref<BatFieldRow[]>([])
 const loading = ref(false)
 const error = ref('')
+
+const archiveItems = ref<ArcInfoItem[]>([])
+const archiveImageCounts = ref<Record<string, number>>({})
+const archivesLoading = ref(false)
 
 const modalVisible = ref(false)
 const editing = ref<BatFieldRow | null>(null)
@@ -82,7 +97,37 @@ const loadData = async (): Promise<void> => {
   }
 }
 
-onMounted(loadData)
+const loadArchives = async (): Promise<void> => {
+  archivesLoading.value = true
+  try {
+    const result = await window.api.listArcInfo({ batId })
+    archiveItems.value = result.ok ? (result.items ?? []) : []
+
+    const counts: Record<string, number> = {}
+    await Promise.all(
+      archiveItems.value.map(async (item) => {
+        const images = await window.api.listArcImage({ arcId: item.arcId })
+        counts[item.arcId] = images.ok ? (images.items?.length ?? 0) : 0
+      })
+    )
+    archiveImageCounts.value = counts
+  } catch (e) {
+    console.error(e)
+  } finally {
+    archivesLoading.value = false
+  }
+}
+
+const openArchive = async (arcId: string): Promise<void> => {
+  await imageStore.setBatch(batId)
+  imageStore.selectArchive(arcId)
+  router.push('/images')
+}
+
+onMounted(() => {
+  void loadData()
+  void loadArchives()
+})
 
 const goBack = (): void => {
   router.push('/batches')
@@ -256,6 +301,60 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
           </tbody>
         </table>
         <p v-if="!items.length" class="empty-state">暂无字段，点击右上角「新增字段」。</p>
+      </div>
+    </section>
+
+    <section class="card archive-card">
+      <div class="card-header">
+        <h3 class="card-title">档案</h3>
+        <span class="card-subtitle">{{ archiveItems.length }} 个</span>
+      </div>
+
+      <div v-if="archivesLoading" class="loading-state">加载中…</div>
+      <div v-else class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>档案名称</th>
+              <th style="width: 100px">图像数量</th>
+              <th style="width: 90px">状态</th>
+              <th style="width: 150px">建立时间</th>
+              <th style="width: 100px">备注</th>
+              <th class="col-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="arc in archiveItems" :key="arc.arcId">
+              <td>
+                <strong>{{ arc.arcName }}</strong>
+              </td>
+              <td class="mono-cell">{{ archiveImageCounts[arc.arcId] ?? 0 }}</td>
+              <td>
+                <span class="tag" :class="arc.status === 1 ? 'tag-success' : 'tag-neutral'">
+                  {{ arc.status === 1 ? '已完成' : '进行中' }}
+                </span>
+              </td>
+              <td class="time-cell">{{ formatTime(arc.timeOfCreate) }}</td>
+              <td class="memo-cell">{{ arc.memo || '—' }}</td>
+              <td class="col-actions">
+                <button
+                  class="icon-btn-inline primary"
+                  type="button"
+                  title="进入该档案的图像"
+                  @click="openArchive(arc.arcId)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="!archiveItems.length" class="empty-state">
+          该批次暂无档案，可在「图像处理」页导入图像时创建。
+        </p>
       </div>
     </section>
 
@@ -492,6 +591,25 @@ textarea.input {
 .icon-btn-inline.danger:hover {
   color: var(--color-danger);
   background-color: rgba(239, 68, 68, 0.08);
+}
+
+.icon-btn-inline.primary {
+  color: var(--color-primary);
+}
+
+.icon-btn-inline.primary:hover {
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+.archive-card {
+  margin-top: 14px;
+}
+
+.time-cell {
+  font-size: 12px;
+  color: var(--color-text-2);
+  white-space: nowrap;
 }
 
 .icon-btn-inline svg {

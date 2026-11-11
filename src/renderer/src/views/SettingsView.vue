@@ -43,7 +43,9 @@ const chooseTempDir = async (): Promise<void> => {
     if (result.canceled) return
 
     tempDir.value = result.settings.tempDir
-    flashTempDirMessage(result.message || '临时文件夹已更新')
+    flashTempDirMessage(
+      `${result.message || '临时文件夹已更新'}；原有历史临时文件仍在原文件夹，切换后将不可恢复`
+    )
   } catch (error) {
     console.error(error)
     flashTempDirMessage('设置临时文件夹失败')

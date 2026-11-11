@@ -7,11 +7,17 @@ import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
 import {
   closeDatabase,
+  countArcImageByArcIds,
   createArcFieldInfo,
+  createArcImageBatch,
+  createArcImageHistory,
+  createArcInfo,
   createArcType,
   createBatArcFieldInfo,
   createBatInfoWithSnapshot,
   deleteArcFieldInfo,
+  deleteArcImage,
+  deleteArcInfo,
   deleteArcType,
   deleteBatArcFieldInfo,
   deleteBatInfo,
@@ -20,16 +26,24 @@ import {
   getBatInfo,
   getConfig,
   initializeDatabase,
+  listArcFieldValue,
   listArcFieldInfo,
+  listArcImage,
+  listArcImageHistory,
+  listArcInfo,
   listArcType,
   listBatArcFieldInfo,
   listBatInfo,
   listConfig,
   setConfig,
+  truncateArcImageHistory,
   updateArcFieldInfo,
+  updateArcImage,
+  updateArcInfo,
   updateArcType,
   updateBatArcFieldInfo,
-  updateBatInfoWithSnapshot
+  updateBatInfoWithSnapshot,
+  upsertArcFieldValue
 } from './db/index'
 
 const ASSET_SCHEME = 'app-asset'
@@ -620,6 +634,211 @@ app.whenReady().then(() => {
     }
   })
 
+  // ---------- 档案 ----------
+  ipcMain.handle('arcInfo:list', (_event, payload: { batId: string }) => {
+    try {
+      return { ok: true, items: listArcInfo(payload.batId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcInfo:create',
+    (
+      _event,
+      payload: { batId: string; arcName: string; sortNo?: number; status?: number; memo?: string }
+    ) => {
+      try {
+        return {
+          ok: true,
+          item: createArcInfo({
+            batId: payload.batId,
+            arcName: payload.arcName,
+            sortNo: payload.sortNo,
+            status: payload.status,
+            memo: payload.memo
+          })
+        }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'arcInfo:update',
+    (
+      _event,
+      payload: {
+        arcId: string
+        arcName?: string
+        sortNo?: number
+        status?: number
+        memo?: string
+      }
+    ) => {
+      try {
+        const { arcId, ...patch } = payload
+        return { ok: true, item: updateArcInfo(arcId, patch) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('arcInfo:delete', (_event, payload: { arcId: string }) => {
+    try {
+      return { ok: true, removed: deleteArcInfo(payload.arcId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // ---------- 档案图像 ----------
+  ipcMain.handle('arcImage:list', (_event, payload: { arcId: string }) => {
+    try {
+      return { ok: true, items: listArcImage(payload.arcId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle('arcImage:count', (_event, payload: { arcIds: string[] }) => {
+    try {
+      return { ok: true, items: countArcImageByArcIds(payload.arcIds ?? []) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcImage:create-batch',
+    (
+      _event,
+      payload: {
+        items: Array<{
+          arcId: string
+          sortNo: number
+          sourcePath: string
+          fileName: string
+          ext: string
+          size?: number
+          isPdf?: number
+          pdfPageIndex?: number
+          pdfPageCount?: number
+        }>
+      }
+    ) => {
+      try {
+        return { ok: true, items: createArcImageBatch(payload.items ?? []) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'arcImage:update',
+    (
+      _event,
+      payload: {
+        imageId: string
+        arcId?: string
+        sortNo?: number
+        currentHistoryId?: string | null
+        rotation?: number
+      }
+    ) => {
+      try {
+        const { imageId, ...patch } = payload
+        return { ok: true, item: updateArcImage(imageId, patch) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('arcImage:delete', (_event, payload: { imageId: string }) => {
+    try {
+      return { ok: true, removed: deleteArcImage(payload.imageId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // ---------- 图像处理历史（临时图像版本） ----------
+  ipcMain.handle('arcImageHistory:list', (_event, payload: { imageId: string }) => {
+    try {
+      return { ok: true, items: listArcImageHistory(payload.imageId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcImageHistory:create',
+    (
+      _event,
+      payload: {
+        imageId: string
+        seqNo: number
+        tempRelPath: string
+        rotation: number
+        actionLabel?: string
+      }
+    ) => {
+      try {
+        return { ok: true, item: createArcImageHistory(payload) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  // 撤销后产生新操作：丢弃该版本之后的记录，返回被丢弃的记录（供前端删文件）
+  ipcMain.handle(
+    'arcImageHistory:truncate',
+    (_event, payload: { imageId: string; seqNo: number }) => {
+      try {
+        return { ok: true, discarded: truncateArcImageHistory(payload.imageId, payload.seqNo) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  // ---------- 档案字段值 ----------
+  ipcMain.handle('arcFieldValue:list', (_event, payload: { arcId: string }) => {
+    try {
+      return { ok: true, items: listArcFieldValue(payload.arcId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'arcFieldValue:upsert',
+    (
+      _event,
+      payload: {
+        items: Array<{
+          arcId: string
+          batFieldId: string
+          fieldName: string
+          fieldValue: string
+        }>
+      }
+    ) => {
+      try {
+        const saved = (payload.items ?? []).map((item) => upsertArcFieldValue(item))
+        return { ok: true, items: saved }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
   // Open a native file dialog and return the selected images as data URLs
   ipcMain.handle('image:open-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -938,31 +1157,52 @@ app.whenReady().then(() => {
     }
   })
 
-  // Persist a rendered image (e.g. after rotation) into the temp directory
+  // Persist a rendered image into the temp directory, under arc/{arcId}/{imageId}/{seqNo}.{ext}
+  // 返回相对临时目录的路径（写入数据库的就是这个相对路径）
   ipcMain.handle(
     'image:save-temp',
-    async (_event, payload: { id: string; dataUrl: string; slot?: string }) => {
+    async (
+      _event,
+      payload: { arcId: string; imageId: string; seqNo: number; dataUrl: string }
+    ) => {
       try {
         const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(payload.dataUrl)
         if (!match) return { ok: false, message: '图片数据格式无效' }
 
         const ext = MIME_TO_EXT[match[1]] ?? 'png'
-        const safeId = payload.id.replace(/[^a-zA-Z0-9_-]/g, '') || 'image'
-        const safeSlot = (payload.slot ?? '').replace(/[^a-zA-Z0-9_-]/g, '')
-        const fileName = safeSlot ? `${safeId}-${safeSlot}.${ext}` : `${safeId}.${ext}`
+        const safeArc = payload.arcId.replace(/[^a-zA-Z0-9_-]/g, '') || 'arc'
+        const safeImage = payload.imageId.replace(/[^a-zA-Z0-9_-]/g, '') || 'image'
+        const seqNo = Number.isFinite(payload.seqNo) ? payload.seqNo : 0
 
         const tempDir = await ensureTempDir()
-        const filePath = join(tempDir, fileName)
+        const relPath = ['arc', safeArc, safeImage, `${seqNo}.${ext}`].join('/')
+        const filePath = join(tempDir, 'arc', safeArc, safeImage, `${seqNo}.${ext}`)
 
+        await mkdir(join(tempDir, 'arc', safeArc, safeImage), { recursive: true })
         await writeFile(filePath, Buffer.from(match[2], 'base64'))
 
-        return { ok: true, path: filePath }
+        return { ok: true, relPath }
       } catch (error) {
         console.error('Failed to save temp image:', error)
         return { ok: false, message: '写入临时文件夹失败' }
       }
     }
   )
+
+  // Read an original image file back as a data URL (for restoring images from database)
+  ipcMain.handle('image:read-file', async (_event, payload: { path: string }) => {
+    try {
+      const ext = extname(payload.path).slice(1).toLowerCase()
+      const mime = IMAGE_MIME_TYPES[ext]
+      if (!mime) return { ok: false, message: '不支持的图像格式' }
+
+      const buffer = await readFile(payload.path)
+      return { ok: true, dataUrl: `data:${mime};base64,${buffer.toString('base64')}` }
+    } catch (error) {
+      console.error('Failed to read image file:', error)
+      return { ok: false, message: '读取原始图像失败' }
+    }
+  })
 
   // Read a previously persisted temp image back as a data URL (for history restore)
   ipcMain.handle('image:read-temp', async (_event, payload: { path: string }) => {

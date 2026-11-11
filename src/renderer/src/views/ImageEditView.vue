@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { imageStore, type EditableImage } from '../stores/imageStore'
 import { formatSize } from '../utils/format'
@@ -763,8 +763,90 @@ const stopDragListeners = (): void => {
   window.removeEventListener('mouseup', endSelect)
 }
 
+interface ArcFieldDef {
+  id: string
+  batId: string
+  sortNo: number
+  fieldName: string
+  fieldType: string
+  isRequired: number
+  memo: string
+}
+
+const fieldDefs = ref<ArcFieldDef[]>([])
+const fieldValues = reactive<Record<string, string>>({})
+const fieldsLoading = ref(false)
+const fieldsSaving = ref(false)
+const fieldsMessage = ref('')
+
+const loadArchiveFields = async (): Promise<void> => {
+  const target = image.value
+  if (!target || !imageStore.batId) {
+    fieldDefs.value = []
+    return
+  }
+
+  fieldsLoading.value = true
+  fieldsMessage.value = ''
+  try {
+    const [defs, values] = await Promise.all([
+      window.api.listBatArcFieldInfo({ batId: imageStore.batId }),
+      window.api.listArcFieldValue({ arcId: target.arcId })
+    ])
+
+    fieldDefs.value = defs.ok ? (defs.items ?? []) : []
+
+    for (const key of Object.keys(fieldValues)) {
+      delete fieldValues[key]
+    }
+
+    for (const item of values.ok ? (values.items ?? []) : []) {
+      fieldValues[item.batFieldId] = item.fieldValue
+    }
+  } catch (error) {
+    console.error(error)
+  } finally {
+    fieldsLoading.value = false
+  }
+}
+
+const saveArchiveFields = async (): Promise<void> => {
+  const target = image.value
+  if (!target || fieldsSaving.value) return
+
+  const missing = fieldDefs.value.filter(
+    (field) => field.isRequired === 1 && !(fieldValues[field.id] ?? '').trim()
+  )
+
+  if (missing.length) {
+    fieldsMessage.value = `请填写必填字段：${missing.map((item) => item.fieldName).join('、')}`
+    return
+  }
+
+  fieldsSaving.value = true
+  fieldsMessage.value = ''
+  try {
+    const result = await window.api.upsertArcFieldValue({
+      items: fieldDefs.value.map((field) => ({
+        arcId: target.arcId,
+        batFieldId: field.id,
+        fieldName: field.fieldName,
+        fieldValue: fieldValues[field.id] ?? ''
+      }))
+    })
+
+    fieldsMessage.value = result.ok ? '档案字段已保存' : result.message || '保存失败'
+  } catch (error) {
+    fieldsMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    fieldsSaving.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  void imageStore.ensureImageData(String(route.params.id))
+  void loadArchiveFields()
   void nextTick(() => {
     observeStage()
     syncResolution()
@@ -785,6 +867,16 @@ watch(
     if (picking.value) cancelPick()
     if (manualMode.value) cancelManual()
     clearSelection()
+    void imageStore.ensureImageData(String(route.params.id))
+  }
+)
+
+// 档案字段跟随当前档案而非当前图像：仅在档案变化时重新加载
+watch(
+  () => image.value?.arcId,
+  (arcId, prevArcId) => {
+    if (!arcId || arcId === prevArcId) return
+    void loadArchiveFields()
   }
 )
 
@@ -804,14 +896,14 @@ const goBack = (): void => {
 const findCurrentArchiveIndex = (): number => {
   const current = image.value
   if (!current) return -1
-  return imageStore.archives.findIndex((item) => item.id === current.archiveId)
+  return imageStore.archives.findIndex((item) => item.id === current.arcId)
 }
 
-const goArchiveByOffset = (offset: 1 | -1): void => {
+const goArchiveByOffset = async (offset: 1 | -1): Promise<void> => {
   const idx = findCurrentArchiveIndex()
   const archives = imageStore.archives
 
-  const targetIdx = idx + offset
+  let targetIdx = idx + offset
   if (targetIdx < 0) {
     flashNotice('已经是第一份档案')
     return
@@ -821,24 +913,39 @@ const goArchiveByOffset = (offset: 1 | -1): void => {
     return
   }
 
-  const targetArchive = archives[targetIdx]
-  const targetImages = imageStore.imagesOf(targetArchive.id)
+  while (targetIdx >= 0 && targetIdx < archives.length) {
+    const targetArchive = archives[targetIdx]
+    let targetImages = imageStore.imagesOf(targetArchive.id)
 
-  if (!targetImages.length) {
-    flashNotice(`${offset > 0 ? '下' : '上'}一份档案「${targetArchive.name}」中暂无图片`)
-    return
+    // 内存中没有时，尝试从数据库补齐统计，避免因未加载而误判为空
+    if (!targetImages.length) {
+      await imageStore.ensureArchiveLoaded(targetArchive.id)
+      targetImages = imageStore.imagesOf(targetArchive.id)
+    }
+
+    if (targetImages.length) {
+      imageStore.selectArchive(targetArchive.id)
+      router.push({ name: 'image-edit', params: { id: targetImages[0].id } })
+      return
+    }
+
+    // 向下切换时跳过空档案，继续寻找后面的有图档案
+    if (offset < 0) {
+      flashNotice(`上一份档案「${targetArchive.name}」中暂无图片`)
+      return
+    }
+    targetIdx += 1
   }
 
-  imageStore.selectArchive(targetArchive.id)
-  router.push({ name: 'image-edit', params: { id: targetImages[0].id } })
+  flashNotice('后面没有包含图片的档案了')
 }
 
 const goPrevArchive = (): void => {
-  goArchiveByOffset(-1)
+  void goArchiveByOffset(-1)
 }
 
 const goNextArchive = (): void => {
-  goArchiveByOffset(1)
+  void goArchiveByOffset(1)
 }
 
 const prevArchiveDisabled = computed(() => findCurrentArchiveIndex() <= 0)
@@ -879,35 +986,83 @@ const persistState = async (
   rotation: number,
   label: string
 ): Promise<boolean> => {
-  let index = target.historyIndex + 1
-  const discarded = target.history.slice(index)
+  const arcId = target.arcId || imageStore.activeArchiveId
+  const keepIndex = target.historyIndex
 
-  if (discarded.length) {
-    await window.api.deleteTempImages({ paths: discarded.map((item) => item.tempPath) })
+  // 撤销后产生新操作：丢弃该版本之后的历史记录与临时文件
+  if (target.history.length > keepIndex + 1) {
+    const truncated = await window.api.truncateArcImageHistory({
+      imageId: target.id,
+      seqNo: keepIndex
+    })
+    const discarded = truncated.discarded ?? []
+    if (discarded.length) {
+      await window.api.deleteTempImages({ paths: discarded.map((item) => item.tempRelPath) })
+    }
+    imageStore.truncateHistory(target.id, keepIndex)
   }
 
-  if (index === 0) {
+  let seq = keepIndex + 1
+
+  if (target.history.length === 0) {
     const base = await window.api.saveTempImage({
-      id: target.id,
-      dataUrl: target.dataUrl,
-      slot: 's0'
+      arcId,
+      imageId: target.id,
+      seqNo: 0,
+      dataUrl: target.dataUrl
     })
 
-    if (!base.ok || !base.path) return false
+    if (!base.ok || !base.relPath) return false
+
+    const baseRow = await window.api.createArcImageHistory({
+      imageId: target.id,
+      seqNo: 0,
+      tempRelPath: base.relPath,
+      rotation: target.rotation,
+      actionLabel: '原始图片'
+    })
+
+    if (!baseRow.ok || !baseRow.item) return false
 
     imageStore.commitHistory(target.id, {
-      tempPath: base.path,
+      historyId: baseRow.item.historyId,
+      tempPath: base.relPath,
       rotation: target.rotation,
       label: '原始图片'
     })
 
-    index = 1
+    seq = 1
   }
 
-  const saved = await window.api.saveTempImage({ id: target.id, dataUrl, slot: `s${index}` })
-  if (!saved.ok || !saved.path) return false
+  const saved = await window.api.saveTempImage({
+    arcId,
+    imageId: target.id,
+    seqNo: seq,
+    dataUrl
+  })
+  if (!saved.ok || !saved.relPath) return false
 
-  imageStore.commitHistory(target.id, { tempPath: saved.path, rotation, label })
+  const created = await window.api.createArcImageHistory({
+    imageId: target.id,
+    seqNo: seq,
+    tempRelPath: saved.relPath,
+    rotation,
+    actionLabel: label
+  })
+  if (!created.ok || !created.item) return false
+
+  await window.api.updateArcImage({
+    imageId: target.id,
+    currentHistoryId: created.item.historyId,
+    rotation
+  })
+
+  imageStore.commitHistory(target.id, {
+    historyId: created.item.historyId,
+    tempPath: saved.relPath,
+    rotation,
+    label
+  })
   imageStore.update(target.id, { dataUrl })
 
   return true
@@ -930,6 +1085,12 @@ const restoreState = async (index: number): Promise<void> => {
       flashNotice(read.message || '读取临时文件失败，无法恢复该步骤')
       return
     }
+
+    await window.api.updateArcImage({
+      imageId: target.id,
+      currentHistoryId: entry.historyId,
+      rotation: entry.rotation
+    })
 
     imageStore.update(target.id, {
       dataUrl: read.dataUrl,
@@ -1561,6 +1722,41 @@ const handleAction = (action: EditAction): void => {
               }}</strong>
             </li>
           </ul>
+
+          <div class="archive-fields">
+            <div class="archive-fields-head">
+              <span class="archive-fields-title">档案字段</span>
+              <button
+                class="btn btn-sm btn-primary"
+                type="button"
+                :disabled="fieldsSaving || fieldsLoading || !fieldDefs.length"
+                @click="saveArchiveFields"
+              >
+                {{ fieldsSaving ? '保存中…' : '保存' }}
+              </button>
+            </div>
+
+            <p v-if="fieldsLoading" class="archive-fields-tip">加载中…</p>
+            <p v-else-if="!fieldDefs.length" class="archive-fields-tip">
+              该批次未定义档案字段
+            </p>
+            <div v-else class="archive-field-list">
+              <label v-for="field in fieldDefs" :key="field.id" class="archive-field-item">
+                <span class="archive-field-name">
+                  {{ field.fieldName }}
+                  <em v-if="field.isRequired === 1" class="archive-field-required">*</em>
+                </span>
+                <input
+                  v-model="fieldValues[field.id]"
+                  class="input archive-field-input"
+                  type="text"
+                  :placeholder="field.memo || '请输入'"
+                />
+              </label>
+            </div>
+
+            <p v-if="fieldsMessage" class="archive-fields-tip">{{ fieldsMessage }}</p>
+          </div>
         </div>
       </aside>
     </div>
@@ -2031,6 +2227,60 @@ const handleAction = (action: EditAction): void => {
   color: var(--color-text-1);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.archive-fields {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.archive-fields-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.archive-fields-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-1);
+}
+
+.archive-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archive-field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.archive-field-name {
+  font-size: 12px;
+  color: var(--color-text-3);
+}
+
+.archive-field-required {
+  margin-left: 2px;
+  font-style: normal;
+  color: var(--color-danger);
+}
+
+.archive-field-input {
+  height: 30px;
+  font-size: 13px;
+}
+
+.archive-fields-tip {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-text-3);
 }
 
 .action-bar {
