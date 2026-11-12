@@ -268,21 +268,38 @@ const applyExportProgress = (progress: PdfExportProgress): void => {
     return
   }
 
+  if (progress.phase === 'ocr') {
+    exportState.current = progress.current
+    exportState.message = progress.message ?? '正在识别文字…'
+    return
+  }
+
   exportState.current = ''
   exportState.finished = true
   exportState.failed = progress.failures ?? 0
 }
 
-const prepareArchiveImages = async (archiveId: string): Promise<string[]> => {
+interface PreparedArchiveImages {
+  images: string[]
+  metas: Array<{ imageId: string; historyId: string }>
+}
+
+const prepareArchiveImages = async (archiveId: string): Promise<PreparedArchiveImages> => {
   // 未加载过的档案（如未在列表中选中过）先从数据库补齐图像
   await imageStore.ensureArchiveLoaded(archiveId)
   const source = imageStore.imagesOf(archiveId)
   const prepared: string[] = []
+  const metas: Array<{ imageId: string; historyId: string }> = []
 
   for (const image of source) {
     if (!image.dataUrl) {
       await imageStore.ensureImageData(image.id)
     }
+
+    metas.push({
+      imageId: image.id,
+      historyId: image.history[image.historyIndex]?.historyId ?? ''
+    })
 
     if (isPdfReadyDataUrl(image.dataUrl)) {
       prepared.push(image.dataUrl)
@@ -297,7 +314,7 @@ const prepareArchiveImages = async (archiveId: string): Promise<string[]> => {
     }
   }
 
-  return prepared
+  return { images: prepared, metas }
 }
 
 const retrySkippedImages = async (
@@ -329,7 +346,7 @@ const retrySkippedImages = async (
       const retried = await window.api.exportPdf({
         dir,
         silent: true,
-        archives: [{ name: source.name, fileName: current.fileName, images }]
+        archives: [{ name: source.name, fileName: current.fileName, images, metas: source.metas }]
       })
 
       if (retried.results[0]) merged[index] = retried.results[0]
@@ -381,7 +398,8 @@ const exportPdf = async (): Promise<void> => {
     const archives: PdfExportArchive[] = []
 
     for (const item of targets) {
-      archives.push({ name: item.name, images: await prepareArchiveImages(item.id) })
+      const prepared = await prepareArchiveImages(item.id)
+      archives.push({ name: item.name, images: prepared.images, metas: prepared.metas })
     }
 
     const payload = { dir: folder.dir, archives }

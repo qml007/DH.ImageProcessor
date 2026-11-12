@@ -9,9 +9,23 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # 字体通过 extraResources 分发，避免在 asar 内重复打包
+  - '!resources/fonts/*'
 asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+  - node_modules/@gutenye/ocr-node/**
+  - node_modules/@gutenye/ocr-common/**
+extraResources:
+  # OCR 模型（离线中文识别）
+  - from: node_modules/@gutenye/ocr-models/assets
+    to: ocr
+  # 双层 PDF 使用的不可见文字层字体
+  - from: resources/fonts
+    to: fonts
 win:
   executableName: test2
 nsis:

@@ -1,5 +1,6 @@
 import { getDatabase } from './connection'
 import { generateSnowflakeId } from './common'
+import { deleteArcImageOcrByHistory } from './arcImageOcr'
 
 export interface ArcImageHistoryRow {
   historyId: string
@@ -88,6 +89,10 @@ export function truncateArcImageHistory(imageId: string, seqNo: number): ArcImag
     .all(imageId, seqNo) as RawRow[]
 
   db.prepare('DELETE FROM arcImageHistory WHERE imageId = ? AND seqNo > ?').run(imageId, seqNo)
+  deleteArcImageOcrByHistory(
+    imageId,
+    discarded.map((item) => item.historyId)
+  )
   return discarded.map(mapRow)
 }
 

@@ -1,12 +1,21 @@
-import { nativeImage } from 'electron'
+import { app, nativeImage } from 'electron'
+import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import {
+  PDFDocument,
+  PDFFont,
+  PDFNumber,
+  PDFOperator,
+  PDFOperatorNames,
+  PDFPage,
+  type PDFImage as PdfLibImage
+} from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 
-interface PdfImage {
+interface PdfImageData {
   width: number
   height: number
-  colorSpace: 'DeviceRGB' | 'DeviceGray' | 'DeviceCMYK'
-  filter: 'DCTDecode' | 'FlateDecode'
-  decodeParms?: string
-  decode?: string
   data: Buffer
 }
 
@@ -26,6 +35,15 @@ interface PngInfo {
   idat: Buffer
 }
 
+/** OCR 文字块，坐标为图像像素（左上角原点） */
+export interface PdfTextBlock {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const DATA_URL_PATTERN = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s
 
 const JPEG_QUALITY = 90
@@ -33,6 +51,28 @@ const JPEG_QUALITY = 90
 const SOF_MARKERS = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf
 ])
+
+let fontBytesPromise: Promise<Buffer> | null = null
+
+const fontPath = (): string => {
+  const candidates = [
+    join(process.resourcesPath, 'fonts', 'NotoSansSC-Regular.otf'),
+    join(process.cwd(), 'resources', 'fonts', 'NotoSansSC-Regular.otf'),
+    join(app.getAppPath(), 'resources', 'fonts', 'NotoSansSC-Regular.otf')
+  ]
+
+  return candidates.find((item) => existsSync(item)) ?? candidates[0]
+}
+
+const loadFontBytes = (): Promise<Buffer> => {
+  if (!fontBytesPromise) {
+    fontBytesPromise = readFile(fontPath()).catch((error) => {
+      fontBytesPromise = null
+      throw error
+    })
+  }
+  return fontBytesPromise
+}
 
 function decodeDataUrl(dataUrl: string): { mime: string; data: Buffer } | null {
   const match = DATA_URL_PATTERN.exec(dataUrl.trim())
@@ -130,7 +170,7 @@ function parsePng(buffer: Buffer): PngInfo | null {
   return { width, height, bitDepth, colorType, interlace, idat: Buffer.concat(idats) }
 }
 
-function transcodeToJpeg(buffer: Buffer): PdfImage | null {
+function transcodeToJpeg(buffer: Buffer): PdfImageData | null {
   const image = nativeImage.createFromBuffer(buffer)
   if (image.isEmpty()) return null
 
@@ -138,149 +178,85 @@ function transcodeToJpeg(buffer: Buffer): PdfImage | null {
   const jpeg = image.toJPEG(JPEG_QUALITY)
   if (!width || !height || !jpeg.length) return null
 
-  return {
-    width,
-    height,
-    colorSpace: 'DeviceRGB',
-    filter: 'DCTDecode',
-    data: Buffer.from(jpeg)
-  }
+  return { width, height, data: Buffer.from(jpeg) }
 }
 
-function toPdfImage(dataUrl: string): PdfImage | null {
+interface EmbeddedPageImage {
+  image: PdfLibImage
+  width: number
+  height: number
+}
+
+async function embedImage(doc: PDFDocument, dataUrl: string): Promise<EmbeddedPageImage | null> {
   const decoded = decodeDataUrl(dataUrl)
   if (!decoded) return null
 
-  const { data } = decoded
-  const format = sniffImageFormat(data)
+  const format = sniffImageFormat(decoded.data)
 
   if (format === 'jpeg') {
-    const info = parseJpeg(data)
-
-    if (info?.baseline) {
-      const colorSpace =
-        info.components === 1 ? 'DeviceGray' : info.components === 4 ? 'DeviceCMYK' : 'DeviceRGB'
-
-      return {
-        width: info.width,
-        height: info.height,
-        colorSpace,
-        filter: 'DCTDecode',
-        decode: info.components === 4 ? '[1 0 1 0 1 0 1 0]' : undefined,
-        data
+    const info = parseJpeg(decoded.data)
+    if (info) {
+      try {
+        const image = await doc.embedJpg(decoded.data)
+        return { image, width: info.width, height: info.height }
+      } catch {
+        // CMYK 等特殊 JPEG 交给 nativeImage 重新编码
       }
     }
   }
 
   if (format === 'png') {
-    const png = parsePng(data)
-
-    if (
-      png &&
-      png.bitDepth === 8 &&
-      png.interlace === 0 &&
-      (png.colorType === 0 || png.colorType === 2)
-    ) {
-      const colors = png.colorType === 0 ? 1 : 3
-
-      return {
-        width: png.width,
-        height: png.height,
-        colorSpace: colors === 1 ? 'DeviceGray' : 'DeviceRGB',
-        filter: 'FlateDecode',
-        decodeParms: `<< /Predictor 15 /Colors ${colors} /BitsPerComponent 8 /Columns ${png.width} >>`,
-        data: png.idat
+    const info = parsePng(decoded.data)
+    if (info) {
+      try {
+        const image = await doc.embedPng(decoded.data)
+        return { image, width: info.width, height: info.height }
+      } catch {
+        // 特殊 PNG 交给 nativeImage 重新编码
       }
     }
   }
 
-  return transcodeToJpeg(data)
+  const jpeg = transcodeToJpeg(decoded.data)
+  if (!jpeg) return null
+
+  const image = await doc.embedJpg(jpeg.data)
+  return { image, width: jpeg.width, height: jpeg.height }
 }
 
-function buildPdf(images: PdfImage[]): Buffer {
-  const objects: Buffer[] = new Array(2 + images.length * 3)
-  const pageIds: number[] = []
-
-  images.forEach((image, index) => {
-    const pageId = 3 + index * 3
-    const contentId = pageId + 1
-    const imageId = pageId + 2
-    pageIds.push(pageId)
-
-    const content = Buffer.from(
-      `q\n${image.width} 0 0 ${image.height} 0 0 cm\n/Im0 Do\nQ\n`,
-      'utf-8'
-    )
-
-    objects[pageId - 1] = Buffer.from(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${image.width} ${image.height}] ` +
-        `/Resources << /XObject << /Im0 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
-      'utf-8'
-    )
-
-    objects[contentId - 1] = Buffer.concat([
-      Buffer.from(`<< /Length ${content.length} >>\nstream\n`, 'utf-8'),
-      content,
-      Buffer.from('endstream', 'utf-8')
-    ])
-
-    const parts = [
-      '<< /Type /XObject',
-      '/Subtype /Image',
-      `/Width ${image.width}`,
-      `/Height ${image.height}`,
-      `/ColorSpace /${image.colorSpace}`,
-      '/BitsPerComponent 8',
-      `/Filter /${image.filter}`,
-      image.decodeParms ? `/DecodeParms ${image.decodeParms}` : '',
-      image.decode ? `/Decode ${image.decode}` : '',
-      `/Length ${image.data.length} >>`
-    ].filter(Boolean)
-
-    objects[imageId - 1] = Buffer.concat([
-      Buffer.from(`${parts.join(' ')}\nstream\n`, 'utf-8'),
-      image.data,
-      Buffer.from('\nendstream', 'utf-8')
-    ])
-  })
-
-  objects[0] = Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'utf-8')
-  objects[1] = Buffer.from(
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,
-    'utf-8'
+/** 在图片上叠加不可见文字层（渲染模式 3），使 PDF 可搜索、可复制 */
+function drawTextLayer(
+  page: PDFPage,
+  font: PDFFont,
+  blocks: PdfTextBlock[],
+  pageHeight: number
+): void {
+  page.pushOperators(
+    PDFOperator.of(PDFOperatorNames.SetTextRenderingMode, [PDFNumber.of(3)])
   )
 
-  const header = Buffer.concat([
-    Buffer.from('%PDF-1.4\n', 'utf-8'),
-    Buffer.from([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a])
-  ])
+  for (const block of blocks) {
+    const text = block.text.replace(/\s+/g, ' ').trim()
+    if (!text || block.width <= 0 || block.height <= 0) continue
 
-  const chunks: Buffer[] = [header]
-  const offsets: number[] = []
-  let offset = header.length
+    let size = Math.max(block.height * 0.9, 4)
 
-  objects.forEach((body, index) => {
-    offsets.push(offset)
+    try {
+      const naturalWidth = font.widthOfTextAtSize(text, size)
+      if (naturalWidth > block.width) {
+        size *= block.width / naturalWidth
+      }
 
-    const head = Buffer.from(`${index + 1} 0 obj\n`, 'utf-8')
-    const tail = Buffer.from('\nendobj\n', 'utf-8')
-
-    chunks.push(head, body, tail)
-    offset += head.length + body.length + tail.length
-  })
-
-  const size = objects.length + 1
-  let xref = `xref\n0 ${size}\n0000000000 65535 f \n`
-
-  for (const entry of offsets) {
-    xref += `${String(entry).padStart(10, '0')} 00000 n \n`
+      const y = pageHeight - block.y - block.height + (block.height - size) / 2
+      page.drawText(text, { x: block.x, y, size, font })
+    } catch {
+      // 个别字符无法编码时跳过该行，不影响图片页
+    }
   }
 
-  xref += `trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF\n`
-
-  chunks.push(Buffer.from(xref, 'utf-8'))
-
-  return Buffer.concat(chunks)
+  page.pushOperators(
+    PDFOperator.of(PDFOperatorNames.SetTextRenderingMode, [PDFNumber.of(0)])
+  )
 }
 
 export interface PdfBuildResult {
@@ -290,24 +266,50 @@ export interface PdfBuildResult {
   skippedIndexes: number[]
 }
 
-export function buildPdfFromDataUrls(dataUrls: string[]): PdfBuildResult {
-  const images: PdfImage[] = []
+export async function buildPdfFromDataUrls(
+  dataUrls: string[],
+  textPages: Array<PdfTextBlock[] | undefined> = []
+): Promise<PdfBuildResult> {
   const skippedIndexes: number[] = []
+  const doc = await PDFDocument.create()
 
-  dataUrls.forEach((dataUrl, index) => {
-    const image = toPdfImage(dataUrl)
-    if (!image) {
+  let font: PDFFont | null = null
+  try {
+    doc.registerFontkit(fontkit)
+    font = await doc.embedFont(await loadFontBytes(), { subset: true })
+  } catch (error) {
+    console.error('Failed to embed OCR font, exporting image-only PDF:', error)
+  }
+
+  let used = 0
+
+  for (let index = 0; index < dataUrls.length; index += 1) {
+    const embedded = await embedImage(doc, dataUrls[index])
+    if (!embedded) {
       skippedIndexes.push(index)
-      return
+      continue
     }
-    images.push(image)
-  })
 
-  if (!images.length) return { pdf: null, used: 0, skipped: skippedIndexes.length, skippedIndexes }
+    const page = doc.addPage([embedded.width, embedded.height])
+    page.drawImage(embedded.image, { x: 0, y: 0, width: embedded.width, height: embedded.height })
+
+    const blocks = textPages[index]
+    if (font && blocks?.length) {
+      drawTextLayer(page, font, blocks, embedded.height)
+    }
+
+    used += 1
+  }
+
+  if (!used) {
+    return { pdf: null, used: 0, skipped: skippedIndexes.length, skippedIndexes }
+  }
+
+  const bytes = await doc.save()
 
   return {
-    pdf: buildPdf(images),
-    used: images.length,
+    pdf: Buffer.from(bytes),
+    used,
     skipped: skippedIndexes.length,
     skippedIndexes
   }

@@ -1,6 +1,7 @@
 import { getDatabase } from './connection'
 import { generateSnowflakeId } from './common'
 import { deleteArcImageHistoryByImage } from './arcImageHistory'
+import { deleteArcImageOcrByImage } from './arcImageOcr'
 
 export interface ArcImageRow {
   imageId: string
@@ -164,6 +165,7 @@ export function deleteArcImage(imageId: string): number {
   const db = getDatabase()
   const tx = db.transaction((): number => {
     deleteArcImageHistoryByImage(imageId)
+    deleteArcImageOcrByImage(imageId)
     return db.prepare('DELETE FROM arcImage WHERE imageId = ?').run(imageId).changes
   })
   return tx()
@@ -177,6 +179,7 @@ export function deleteArcImageByArc(arcId: string): number {
     }>
     for (const { imageId } of ids) {
       deleteArcImageHistoryByImage(imageId)
+      deleteArcImageOcrByImage(imageId)
     }
     return db.prepare('DELETE FROM arcImage WHERE arcId = ?').run(arcId).changes
   })

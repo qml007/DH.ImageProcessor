@@ -59,6 +59,40 @@ export async function toPdfJpegDataUrl(dataUrl: string): Promise<string> {
   return canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY)
 }
 
+export interface NormalizedRegion {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** 按归一化区域裁剪图像（用于字段框选 OCR） */
+export async function cropRegionDataUrl(
+  dataUrl: string,
+  region: NormalizedRegion
+): Promise<string> {
+  const img = await loadImage(dataUrl)
+
+  const imageWidth = img.naturalWidth
+  const imageHeight = img.naturalHeight
+  if (!imageWidth || !imageHeight) throw new Error('图片尺寸无效')
+
+  const sourceX = Math.max(0, Math.round(region.x * imageWidth))
+  const sourceY = Math.max(0, Math.round(region.y * imageHeight))
+  const width = Math.min(imageWidth - sourceX, Math.max(1, Math.round(region.w * imageWidth)))
+  const height = Math.min(imageHeight - sourceY, Math.max(1, Math.round(region.h * imageHeight)))
+
+  if (width <= 0 || height <= 0) throw new Error('框选区域无效')
+
+  const canvas = createCanvas(width, height)
+  const context = getContext(canvas)
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(img, sourceX, sourceY, width, height, 0, 0, width, height)
+
+  return canvas.toDataURL('image/png')
+}
+
 export async function rotateImage(dataUrl: string, angle: RotationAngle): Promise<string> {
   const img = await loadImage(dataUrl)
 

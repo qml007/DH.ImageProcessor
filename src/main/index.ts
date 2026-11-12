@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
+import { recognizeDataUrl, recognizeImageWithCache, shutdownOcrWorker } from './ocr'
 import {
   closeDatabase,
   countArcImageByArcIds,
@@ -94,6 +95,7 @@ interface PdfExportArchive {
   name: string
   images: string[]
   fileName?: string
+  metas?: Array<{ imageId: string; historyId: string }>
 }
 
 interface PdfExportPayload {
@@ -768,6 +770,21 @@ app.whenReady().then(() => {
     }
   })
 
+  // ---------- OCR 文字识别 ----------
+  ipcMain.handle('ocr:recognize-region', async (_event, payload: { dataUrl: string }) => {
+    try {
+      const result = await recognizeDataUrl(payload.dataUrl)
+      return {
+        ok: true,
+        text: result.lines.map((line) => line.text).join(' '),
+        lines: result.lines
+      }
+    } catch (error) {
+      console.error('OCR recognize region failed:', error)
+      return { ok: false, message: error instanceof Error ? error.message : 'OCR 识别失败' }
+    }
+  })
+
   // ---------- 图像处理历史（临时图像版本） ----------
   ipcMain.handle('arcImageHistory:list', (_event, payload: { imageId: string }) => {
     try {
@@ -1028,7 +1045,41 @@ app.whenReady().then(() => {
       let message = ''
 
       try {
-        const built = buildPdfFromDataUrls(archive.images)
+        // 双层 PDF：先取缓存或识别每张图的文字，再叠加不可见文字层
+        const textPages: Array<Awaited<ReturnType<typeof recognizeImageWithCache>>['lines']> = []
+
+        for (let index = 0; index < archive.images.length; index += 1) {
+          const meta = archive.metas?.[index]
+          if (!meta?.imageId) {
+            textPages.push([])
+            continue
+          }
+
+          if (!silent) {
+            sender.send('pdf:export-progress', {
+              phase: 'ocr',
+              total,
+              done,
+              remaining: total - done,
+              current: archive.name,
+              message: `正在识别文字（${index + 1}/${archive.images.length}）`
+            })
+          }
+
+          try {
+            const recognized = await recognizeImageWithCache(
+              meta.imageId,
+              meta.historyId ?? '',
+              archive.images[index]
+            )
+            textPages.push(recognized.lines)
+          } catch (error) {
+            console.error('OCR failed, export image-only page:', archive.name, error)
+            textPages.push([])
+          }
+        }
+
+        const built = await buildPdfFromDataUrls(archive.images, textPages)
 
         result.used = built.used
         result.skipped = built.skipped
@@ -1259,6 +1310,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  shutdownOcrWorker()
   closeDatabase()
 })
 

@@ -119,6 +119,22 @@ const createSchema = (db: Database.Database): void => {
     CREATE INDEX IF NOT EXISTS idx_arcImageHistory_imageId ON arcImageHistory(imageId);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_arcImageHistory_seq ON arcImageHistory(imageId, seqNo);
 
+    CREATE TABLE IF NOT EXISTS arcImageOcr (
+      ocrId TEXT PRIMARY KEY NOT NULL,
+      imageId TEXT NOT NULL,
+      historyId TEXT NOT NULL DEFAULT '',
+      imageWidth INTEGER NOT NULL DEFAULT 0,
+      imageHeight INTEGER NOT NULL DEFAULT 0,
+      text TEXT NOT NULL DEFAULT '',
+      blocksJson TEXT NOT NULL DEFAULT '[]',
+      engine TEXT NOT NULL DEFAULT '',
+      timeOfCreate TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_arcImageOcr_imageId ON arcImageOcr(imageId);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_arcImageOcr_image_history
+      ON arcImageOcr(imageId, historyId);
+
     CREATE TABLE IF NOT EXISTS arcFieldValue (
       valueId TEXT PRIMARY KEY NOT NULL,
       arcId TEXT NOT NULL,

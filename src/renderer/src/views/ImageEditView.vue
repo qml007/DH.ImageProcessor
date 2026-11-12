@@ -16,6 +16,7 @@ import {
   removeSimilarColor,
   maskRegion,
   centerRegion,
+  cropRegionDataUrl,
   type PixelSampler,
   type FlipDirection,
   type RotationAngle
@@ -420,6 +421,12 @@ const endSelect = (event: MouseEvent): void => {
 
   if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) < MIN_SELECTION_PX) {
     clearSelection()
+    return
+  }
+
+  // 字段框选模式：松开鼠标后直接对所选区域做 OCR
+  if (ocrFieldId.value) {
+    void applyOcrToField()
   }
 }
 
@@ -742,6 +749,7 @@ const handleKeydown = (event: KeyboardEvent): void => {
   if (event.key === 'Escape') {
     if (manualMode.value) cancelManual()
     else if (picking.value) cancelPick()
+    else if (ocrFieldId.value) cancelOcrField()
     else if (hasSelection.value) clearSelection()
     return
   }
@@ -778,6 +786,8 @@ const fieldValues = reactive<Record<string, string>>({})
 const fieldsLoading = ref(false)
 const fieldsSaving = ref(false)
 const fieldsMessage = ref('')
+const ocrFieldId = ref('')
+const ocrRecognizing = ref(false)
 
 const loadArchiveFields = async (): Promise<void> => {
   const target = image.value
@@ -786,6 +796,7 @@ const loadArchiveFields = async (): Promise<void> => {
     return
   }
 
+  ocrFieldId.value = ''
   fieldsLoading.value = true
   fieldsMessage.value = ''
   try {
@@ -840,6 +851,64 @@ const saveArchiveFields = async (): Promise<void> => {
     fieldsMessage.value = error instanceof Error ? error.message : '保存失败'
   } finally {
     fieldsSaving.value = false
+  }
+}
+
+const cancelOcrField = (): void => {
+  if (!ocrFieldId.value) return
+  ocrFieldId.value = ''
+  clearSelection()
+  fieldsMessage.value = ''
+}
+
+/** 点击字段后的“框选”按钮：进入/退出该字段的取字模式 */
+const toggleOcrField = (fieldId: string): void => {
+  if (ocrRecognizing.value || processing.value) return
+
+  if (ocrFieldId.value === fieldId) {
+    cancelOcrField()
+    return
+  }
+
+  ocrFieldId.value = fieldId
+  clearSelection()
+  const field = fieldDefs.value.find((item) => item.id === fieldId)
+  fieldsMessage.value = `请在图像上框选要识别到「${field?.fieldName ?? '当前字段'}」的文字`
+}
+
+const applyOcrToField = async (): Promise<void> => {
+  const target = image.value
+  const region = selection.value
+  const fieldId = ocrFieldId.value
+  if (!target || !region || !fieldId || ocrRecognizing.value) return
+
+  ocrRecognizing.value = true
+  fieldsMessage.value = '正在识别所选文字…'
+  try {
+    const cropped = await cropRegionDataUrl(target.dataUrl, region)
+    const result = await window.api.recognizeRegion({ dataUrl: cropped })
+    if (!result.ok) {
+      fieldsMessage.value = result.message || '识别失败，请重新框选'
+      flashNotice(fieldsMessage.value)
+      return
+    }
+
+    const text = (result.text ?? '').trim()
+    if (!text) {
+      fieldsMessage.value = '未识别到文字，请重新框选'
+      return
+    }
+
+    fieldValues[fieldId] = text
+    fieldsMessage.value = '已识别文字并填入字段，请核对'
+    flashNotice('已识别文字并填入字段')
+  } catch (error) {
+    console.error(error)
+    fieldsMessage.value = '识别失败，请稍后重试'
+  } finally {
+    ocrRecognizing.value = false
+    ocrFieldId.value = ''
+    clearSelection()
   }
 }
 
@@ -1602,7 +1671,12 @@ const handleAction = (action: EditAction): void => {
                   />
                 </svg>
 
-                <div v-if="selectionStyle" class="selection-box" :style="selectionStyle">
+                <div
+                  v-if="selectionStyle"
+                  class="selection-box"
+                  :class="{ 'is-ocr': !!ocrFieldId }"
+                  :style="selectionStyle"
+                >
                   <span v-if="dragging" class="selection-size">{{ selectionSize }}</span>
                 </div>
               </div>
@@ -1746,12 +1820,44 @@ const handleAction = (action: EditAction): void => {
                   {{ field.fieldName }}
                   <em v-if="field.isRequired === 1" class="archive-field-required">*</em>
                 </span>
-                <input
-                  v-model="fieldValues[field.id]"
-                  class="input archive-field-input"
-                  type="text"
-                  :placeholder="field.memo || '请输入'"
-                />
+                <div class="archive-field-control">
+                  <input
+                    v-model="fieldValues[field.id]"
+                    class="input archive-field-input"
+                    type="text"
+                    :placeholder="field.memo || '请输入'"
+                  />
+                  <button
+                    class="archive-field-select"
+                    :class="{ 'is-active': ocrFieldId === field.id }"
+                    type="button"
+                    :disabled="ocrRecognizing || processing"
+                    :title="ocrFieldId === field.id ? '取消框选' : '框选文字填入字段'"
+                    aria-label="框选"
+                    @click.stop="toggleOcrField(field.id)"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect
+                        x="3.5"
+                        y="3.5"
+                        width="17"
+                        height="17"
+                        rx="2"
+                        stroke-dasharray="3 3"
+                      ></rect>
+                    </svg>
+                  </button>
+                </div>
               </label>
             </div>
 
@@ -2051,6 +2157,17 @@ const handleAction = (action: EditAction): void => {
   pointer-events: none;
 }
 
+/* 字段框选取字模式：使用橙色标记以便与普通选区区分 */
+.selection-box.is-ocr {
+  border: 2px dashed #f59e0b;
+  background-color: rgba(245, 158, 11, 0.18);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+.selection-box.is-ocr .selection-size {
+  background-color: rgba(180, 83, 9, 0.9);
+}
+
 .selection-size {
   position: absolute;
   top: 4px;
@@ -2272,9 +2389,72 @@ const handleAction = (action: EditAction): void => {
   color: var(--color-danger);
 }
 
+.archive-field-control {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.archive-field-control:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
 .archive-field-input {
+  flex: 1;
+  min-width: 0;
   height: 30px;
+  padding: 0 8px 0 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   font-size: 13px;
+}
+
+.archive-field-input:focus {
+  border: none;
+  box-shadow: none;
+}
+
+.archive-field-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.archive-field-select:hover {
+  color: var(--color-primary);
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
+.archive-field-select:active {
+  background-color: rgba(37, 99, 235, 0.14);
+}
+
+.archive-field-select.is-active {
+  color: var(--color-primary);
+  background-color: rgba(37, 99, 235, 0.12);
+}
+
+.archive-field-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .archive-fields-tip {

@@ -103,6 +103,10 @@ const api = {
   upsertArcFieldValue: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('arcFieldValue:upsert', payload),
 
+  // OCR 文字识别
+  recognizeRegion: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('ocr:recognize-region', payload),
+
   onPdfExportProgress: (callback: (progress: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void =>
       callback(progress)

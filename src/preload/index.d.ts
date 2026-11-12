@@ -98,6 +98,8 @@ export interface PdfExportArchive {
   name: string
   images: string[]
   fileName?: string
+  /** 与 images 一一对应的图像版本信息，用于双层 PDF 的 OCR 缓存 */
+  metas?: Array<{ imageId: string; historyId: string }>
 }
 
 export interface PdfExportPayload {
@@ -107,7 +109,7 @@ export interface PdfExportPayload {
 }
 
 export interface PdfExportProgress {
-  phase: 'start' | 'file' | 'done'
+  phase: 'start' | 'ocr' | 'file' | 'done'
   total: number
   done: number
   remaining: number
@@ -140,6 +142,28 @@ export interface PdfExportResult {
   failed: number
   failures: PdfExportFailure[]
   results: PdfExportArchiveResult[]
+  message?: string
+}
+
+// ---------- OCR 文字识别 ----------
+
+export interface OcrLine {
+  text: string
+  score: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OcrRecognizeRegionPayload {
+  dataUrl: string
+}
+
+export interface OcrRecognizeRegionResult {
+  ok: boolean
+  text?: string
+  lines?: OcrLine[]
   message?: string
 }
 
@@ -710,6 +734,7 @@ export interface RendererApi {
   upsertArcFieldValue: (
     payload: ArcFieldValueUpsertPayload
   ) => Promise<ArcFieldValueUpsertResult>
+  recognizeRegion: (payload: OcrRecognizeRegionPayload) => Promise<OcrRecognizeRegionResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }
 
