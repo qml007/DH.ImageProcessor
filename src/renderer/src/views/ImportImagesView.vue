@@ -69,8 +69,9 @@ const onBatchChange = async (): Promise<void> => {
 }
 
 // 从数据库加载的图像未带内容，进入页面或切换档案后按需补齐缩略图
+// key 同时包含是否有内容，档案重新加载后即使图像 id 不变也能触发补齐（避免处理后返回列表显示旧图）
 watch(
-  () => images.value.map((item) => item.id).join('|'),
+  () => images.value.map((item) => `${item.id}:${item.dataUrl ? '1' : '0'}`).join('|'),
   async () => {
     for (const item of images.value) {
       if (!item.dataUrl) {

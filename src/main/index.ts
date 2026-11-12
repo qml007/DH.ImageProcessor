@@ -163,7 +163,8 @@ async function ensureTempDir(): Promise<string> {
 async function resolveTempPath(target: string): Promise<string | null> {
   const tempDir = await ensureTempDir()
   const root = resolve(tempDir)
-  const full = resolve(target)
+  // 数据库里保存的是相对于临时文件夹的路径，需要以临时目录为基准解析
+  const full = isAbsolute(target) ? resolve(target) : resolve(root, target)
   const rel = relative(root, full)
 
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null

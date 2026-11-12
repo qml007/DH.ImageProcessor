@@ -49,7 +49,8 @@ const state = reactive({
 const loadedArchives = new Set<string>()
 
 // 图像内容缓存：重新加载档案时复用，避免缩略图变空白
-const dataUrlCache = new Map<string, string>()
+// tempPath 用于校验缓存是否对应当前版本，图像被处理后缓存自动失效
+const dataUrlCache = new Map<string, { dataUrl: string; tempPath: string }>()
 
 const formatArchiveName = (value: number): string => String(value).padStart(4, '0')
 
@@ -98,6 +99,8 @@ const loadImages = async (arcId: string): Promise<void> => {
       const currentIndex = row.currentHistoryId
         ? history.findIndex((item) => item.historyId === row.currentHistoryId)
         : -1
+      const tempPath = currentIndex >= 0 ? history[currentIndex].tempPath : undefined
+      const cached = dataUrlCache.get(row.imageId)
 
       list.push({
         id: row.imageId,
@@ -106,9 +109,10 @@ const loadImages = async (arcId: string): Promise<void> => {
         name: row.fileName,
         ext: row.ext,
         size: row.size,
-        dataUrl: dataUrlCache.get(row.imageId) ?? '',
+        // 仅当缓存对应的是当前版本时才复用，避免显示已处理前的旧图
+        dataUrl: cached && cached.tempPath === (tempPath ?? '') ? cached.dataUrl : '',
         rotation: row.rotation,
-        tempPath: currentIndex >= 0 ? history[currentIndex].tempPath : undefined,
+        tempPath,
         history,
         historyIndex: currentIndex
       })
@@ -454,7 +458,7 @@ export const imageStore = {
         historyIndex
       })
       if (source.dataUrl) {
-        dataUrlCache.set(row.imageId, source.dataUrl)
+        dataUrlCache.set(row.imageId, { dataUrl: source.dataUrl, tempPath: tempPath ?? '' })
       }
     }
 
@@ -476,7 +480,7 @@ export const imageStore = {
       const cached = await window.api.readTempImage({ path: target.tempPath })
       if (cached.ok && cached.dataUrl) {
         target.dataUrl = cached.dataUrl
-        dataUrlCache.set(id, cached.dataUrl)
+        dataUrlCache.set(id, { dataUrl: cached.dataUrl, tempPath: target.tempPath })
         return
       }
     }
@@ -485,7 +489,7 @@ export const imageStore = {
       const original = await window.api.readImageFile({ path: target.path })
       if (original.ok && original.dataUrl) {
         target.dataUrl = original.dataUrl
-        dataUrlCache.set(id, original.dataUrl)
+        dataUrlCache.set(id, { dataUrl: original.dataUrl, tempPath: '' })
       }
     }
   },
@@ -494,6 +498,11 @@ export const imageStore = {
     const target = state.images.find((item) => item.id === id)
     if (!target) return
     Object.assign(target, patch)
+
+    // 处理结果写入后同步缓存，避免返回列表时复用旧图
+    if (patch.dataUrl) {
+      dataUrlCache.set(id, { dataUrl: patch.dataUrl, tempPath: target.tempPath ?? '' })
+    }
   },
 
   commitHistory(id: string, entry: ImageHistoryState): ImageHistoryState[] {
