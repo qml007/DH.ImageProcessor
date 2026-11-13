@@ -49,6 +49,7 @@ linux:
     - AppImage
     - snap
     - deb
+    - rpm # 生成 RPM 包, 用于 Linux 发行版, 如 Fedora, CentOS 等
   maintainer: electronjs.org
   category: Utility
 appImage:
