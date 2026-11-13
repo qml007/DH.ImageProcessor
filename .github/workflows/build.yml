@@ -29,7 +29,7 @@ jobs:
       - name: 使用 electron-builder 打包多格式安装包
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux appimage,deb,rpm --publish=never
+        run: npx electron-builder -w -l appimage deb rpm --publish=never    # -w 生成 Windows 安装包, -l 生成 Linux 安装包
 
       - name: 上传制品 (Artifacts)
         uses: actions/upload-artifact@v4
