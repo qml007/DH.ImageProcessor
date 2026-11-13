@@ -57,6 +57,33 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
+// 兜底捕获主进程未处理异常，避免直接崩溃退出，并给出友好提示
+let errorDialogVisible = false
+
+const reportMainProcessError = (error: unknown): void => {
+  console.error('Unhandled main process error:', error)
+
+  if (errorDialogVisible) return
+  errorDialogVisible = true
+
+  try {
+    const message = error instanceof Error ? error.message : String(error)
+    dialog.showErrorBox(
+      '程序异常',
+      `操作过程中出现异常，当前任务已中断，请重试。\n\n${message}`
+    )
+  } catch (dialogError) {
+    console.error('Failed to show error dialog:', dialogError)
+  } finally {
+    errorDialogVisible = false
+  }
+}
+
+process.on('uncaughtException', reportMainProcessError)
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection in main process:', reason)
+})
+
 const IMAGE_MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -102,6 +129,7 @@ interface PdfExportPayload {
   dir: string
   archives: PdfExportArchive[]
   silent?: boolean
+  doubleLayer?: boolean
 }
 
 interface PdfExportFailure {
@@ -1045,37 +1073,40 @@ app.whenReady().then(() => {
       let message = ''
 
       try {
-        // 双层 PDF：先取缓存或识别每张图的文字，再叠加不可见文字层
+        // 双层 PDF：先取缓存或识别每张图的文字，再叠加不可见文字层；
+        // 只有明确选择双层时才做 OCR，其余情况一律按单层（纯图像）导出
         const textPages: Array<Awaited<ReturnType<typeof recognizeImageWithCache>>['lines']> = []
 
-        for (let index = 0; index < archive.images.length; index += 1) {
-          const meta = archive.metas?.[index]
-          if (!meta?.imageId) {
-            textPages.push([])
-            continue
-          }
+        if (payload.doubleLayer === true) {
+          for (let index = 0; index < archive.images.length; index += 1) {
+            const meta = archive.metas?.[index]
+            if (!meta?.imageId) {
+              textPages.push([])
+              continue
+            }
 
-          if (!silent) {
-            sender.send('pdf:export-progress', {
-              phase: 'ocr',
-              total,
-              done,
-              remaining: total - done,
-              current: archive.name,
-              message: `正在识别文字（${index + 1}/${archive.images.length}）`
-            })
-          }
+            if (!silent) {
+              sender.send('pdf:export-progress', {
+                phase: 'ocr',
+                total,
+                done,
+                remaining: total - done,
+                current: archive.name,
+                message: `正在识别文字（${index + 1}/${archive.images.length}）`
+              })
+            }
 
-          try {
-            const recognized = await recognizeImageWithCache(
-              meta.imageId,
-              meta.historyId ?? '',
-              archive.images[index]
-            )
-            textPages.push(recognized.lines)
-          } catch (error) {
-            console.error('OCR failed, export image-only page:', archive.name, error)
-            textPages.push([])
+            try {
+              const recognized = await recognizeImageWithCache(
+                meta.imageId,
+                meta.historyId ?? '',
+                archive.images[index]
+              )
+              textPages.push(recognized.lines)
+            } catch (error) {
+              console.error('OCR failed, export image-only page:', archive.name, error)
+              textPages.push([])
+            }
           }
         }
 

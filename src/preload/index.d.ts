@@ -106,6 +106,8 @@ export interface PdfExportPayload {
   dir: string
   archives: PdfExportArchive[]
   silent?: boolean
+  /** 仅当为 true 时生成双层 PDF（先 OCR 并叠加文字层），否则按单层纯图像 PDF 导出 */
+  doubleLayer?: boolean
 }
 
 export interface PdfExportProgress {

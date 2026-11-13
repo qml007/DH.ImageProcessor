@@ -273,12 +273,22 @@ export async function buildPdfFromDataUrls(
   const skippedIndexes: number[] = []
   const doc = await PDFDocument.create()
 
+  // 只有确有可绘制的文字块时才嵌入字体：无文字时仍然子集化字体，
+  // 会让 @pdf-lib/fontkit 的 CFFSubset 在保存阶段抛出未捕获的 RangeError
+  const hasDrawableText = textPages.some((blocks) =>
+    blocks?.some(
+      (block) => !!block.text.replace(/\s+/g, ' ').trim() && block.width > 0 && block.height > 0
+    )
+  )
+
   let font: PDFFont | null = null
-  try {
-    doc.registerFontkit(fontkit)
-    font = await doc.embedFont(await loadFontBytes(), { subset: true })
-  } catch (error) {
-    console.error('Failed to embed OCR font, exporting image-only PDF:', error)
+  if (hasDrawableText) {
+    try {
+      doc.registerFontkit(fontkit)
+      font = await doc.embedFont(await loadFontBytes(), { subset: true })
+    } catch (error) {
+      console.error('Failed to embed OCR font, exporting image-only PDF:', error)
+    }
   }
 
   let used = 0

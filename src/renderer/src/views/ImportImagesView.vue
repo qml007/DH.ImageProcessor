@@ -97,6 +97,12 @@ const markAnchorId = ref<string | null>(null)
 
 const exporting = ref(false)
 
+const exportOptions = reactive({
+  visible: false,
+  doubleLayer: true,
+  dir: ''
+})
+
 const exportState = reactive({
   visible: false,
   finished: false,
@@ -319,6 +325,7 @@ const prepareArchiveImages = async (archiveId: string): Promise<PreparedArchiveI
 
 const retrySkippedImages = async (
   dir: string,
+  doubleLayer: boolean,
   archives: PdfExportArchive[],
   results: PdfExportArchiveResult[]
 ): Promise<PdfExportArchiveResult[]> => {
@@ -346,6 +353,7 @@ const retrySkippedImages = async (
       const retried = await window.api.exportPdf({
         dir,
         silent: true,
+        doubleLayer,
         archives: [{ name: source.name, fileName: current.fileName, images, metas: source.metas }]
       })
 
@@ -358,7 +366,52 @@ const retrySkippedImages = async (
   return merged
 }
 
-const exportPdf = async (): Promise<void> => {
+const openExportOptions = (): void => {
+  if (exporting.value) return
+
+  if (!exportTargets.value.length) {
+    flashMessage('没有可导出的档案，请先把图像移到「默认档案」之外的档案中')
+    return
+  }
+
+  exportOptions.doubleLayer = true
+  exportOptions.dir = ''
+  exportOptions.visible = true
+}
+
+const closeExportOptions = (): void => {
+  if (exporting.value) return
+  exportOptions.visible = false
+}
+
+const pickExportFolder = async (): Promise<void> => {
+  if (exporting.value) return
+
+  try {
+    const folder = await window.api.selectPdfFolder()
+    if (folder.canceled || !folder.dir) return
+    exportOptions.dir = folder.dir
+  } catch (error) {
+    console.error(error)
+    flashMessage('选择文件夹失败，请稍后重试')
+  }
+}
+
+const startExport = async (): Promise<void> => {
+  if (exporting.value) return
+
+  if (!exportOptions.dir) {
+    flashMessage('请先选择导出文件夹')
+    return
+  }
+
+  const dir = exportOptions.dir
+  const doubleLayer = exportOptions.doubleLayer
+  exportOptions.visible = false
+  await exportPdf(dir, doubleLayer)
+}
+
+const exportPdf = async (dir: string, doubleLayer: boolean): Promise<void> => {
   if (exporting.value) return
 
   const targets = exportTargets.value
@@ -366,18 +419,6 @@ const exportPdf = async (): Promise<void> => {
     flashMessage('没有可导出的档案，请先把图像移到「默认档案」之外的档案中')
     return
   }
-
-  let folder: Awaited<ReturnType<typeof window.api.selectPdfFolder>>
-
-  try {
-    folder = await window.api.selectPdfFolder()
-  } catch (error) {
-    console.error(error)
-    flashMessage('选择文件夹失败，请稍后重试')
-    return
-  }
-
-  if (folder.canceled || !folder.dir) return
 
   exporting.value = true
   Object.assign(exportState, {
@@ -390,7 +431,7 @@ const exportPdf = async (): Promise<void> => {
     images: 0,
     failed: 0,
     message: '',
-    dir: folder.dir,
+    dir,
     failures: []
   })
 
@@ -399,10 +440,13 @@ const exportPdf = async (): Promise<void> => {
 
     for (const item of targets) {
       const prepared = await prepareArchiveImages(item.id)
-      archives.push({ name: item.name, images: prepared.images, metas: prepared.metas })
+      const archive: PdfExportArchive = { name: item.name, images: prepared.images }
+      // 单层 PDF 不携带 OCR 版本信息，确保不会写入任何文字层
+      if (doubleLayer) archive.metas = prepared.metas
+      archives.push(archive)
     }
 
-    const payload = { dir: folder.dir, archives }
+    const payload = { dir, doubleLayer, archives }
     const result = await window.api.exportPdf(payload)
 
     if (!result.ok) {
@@ -419,7 +463,7 @@ const exportPdf = async (): Promise<void> => {
     exportState.message = ''
     exportState.images = 0
 
-    const finalResults = await retrySkippedImages(folder.dir, archives, result.results)
+    const finalResults = await retrySkippedImages(dir, doubleLayer, archives, result.results)
     const exported = finalResults.filter((item) => item.ok).length
     const failed = finalResults.length - exported
 
@@ -776,7 +820,7 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
           type="button"
           :disabled="exporting || !exportTargets.length"
           :title="exportTargets.length ? '按档案导出 PDF' : '请先把图像移到默认档案之外'"
-          @click="exportPdf"
+          @click="openExportOptions"
         >
           {{ exporting ? '导出中...' : '导出 PDF' }}
         </button>
@@ -961,6 +1005,60 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
           </table>
         </div>
       </section>
+    </div>
+
+    <div v-if="exportOptions.visible" class="export-mask">
+      <div class="export-dialog">
+        <h3 class="export-title">导出选项</h3>
+
+        <div class="export-field">
+          <span class="export-field-label">PDF 类型</span>
+          <div class="export-radios">
+            <label class="export-radio">
+              <input v-model="exportOptions.doubleLayer" type="radio" :value="false" />
+              <span>
+                单层 PDF
+                <em>导出时不做 OCR，仅生成图像 PDF</em>
+              </span>
+            </label>
+            <label class="export-radio">
+              <input v-model="exportOptions.doubleLayer" type="radio" :value="true" />
+              <span>
+                双层 PDF
+                <em>导出时先 OCR，生成可检索、可复制的双层 PDF</em>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="export-field">
+          <span class="export-field-label">导出文件夹</span>
+          <div class="export-folder">
+            <span
+              class="export-folder-path"
+              :class="{ 'is-empty': !exportOptions.dir }"
+              :title="exportOptions.dir"
+            >
+              {{ exportOptions.dir || '尚未选择文件夹' }}
+            </span>
+            <button class="btn btn-sm" type="button" @click="pickExportFolder">
+              选择文件夹
+            </button>
+          </div>
+        </div>
+
+        <div class="export-foot export-foot-actions">
+          <button class="btn btn-sm" type="button" @click="closeExportOptions">取消</button>
+          <button
+            class="btn btn-sm btn-primary"
+            type="button"
+            :disabled="!exportOptions.dir"
+            @click="startExport"
+          >
+            开始导出
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="exportState.visible" class="export-mask">
@@ -1429,6 +1527,73 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
   white-space: nowrap;
 }
 
+.export-field {
+  margin-top: 16px;
+}
+
+.export-field-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-2);
+}
+
+.export-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.export-radio {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-1);
+}
+
+.export-radio input {
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+}
+
+.export-radio em {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--color-text-3);
+}
+
+.export-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-folder-path {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-soft);
+  font-size: 12px;
+  color: var(--color-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-folder-path.is-empty {
+  color: var(--color-text-3);
+}
+
 .export-stats {
   display: flex;
   gap: 10px;
@@ -1486,6 +1651,10 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
   display: flex;
   justify-content: flex-end;
   margin-top: 14px;
+}
+
+.export-foot-actions {
+  gap: 8px;
 }
 
 .export-failures {
