@@ -12,6 +12,8 @@ export interface DeskewResult {
 export interface DeskewOptions {
   /** 候选图的正立程度打分（分值越大越可信），用于在 ±90° 两个方向中择优 */
   scoreUpright?: (dataUrl: string) => Promise<number>
+  /** 旋转后空余区域的填充色（批次底色） */
+  bgColor?: string
 }
 
 const ANALYSIS_MAX_SIDE = 640
@@ -54,6 +56,23 @@ const getContext = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('无法创建画布上下文')
   return context
+}
+
+interface RgbColor {
+  r: number
+  g: number
+  b: number
+}
+
+const WHITE: RgbColor = { r: 255, g: 255, b: 255 }
+
+/** 解析 #RRGGBB，非法值退回白色 */
+const parseHexColor = (color?: string): RgbColor => {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(color?.trim() ?? '')
+  if (!match) return WHITE
+
+  const value = Number.parseInt(match[1], 16)
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 }
 }
 
 export async function toPdfJpegDataUrl(dataUrl: string): Promise<string> {
@@ -107,7 +126,11 @@ export async function cropRegionDataUrl(
   return canvas.toDataURL('image/png')
 }
 
-export async function rotateImage(dataUrl: string, angle: RotationAngle): Promise<string> {
+export async function rotateImage(
+  dataUrl: string,
+  angle: RotationAngle,
+  bgColor = '#ffffff'
+): Promise<string> {
   const img = await loadImage(dataUrl)
 
   const width = img.naturalWidth
@@ -117,6 +140,9 @@ export async function rotateImage(dataUrl: string, angle: RotationAngle): Promis
   const swapped = Math.abs(angle) % 180 === 90
   const canvas = createCanvas(swapped ? height : width, swapped ? width : height)
   const context = getContext(canvas)
+
+  context.fillStyle = bgColor
+  context.fillRect(0, 0, canvas.width, canvas.height)
 
   context.translate(canvas.width / 2, canvas.height / 2)
   context.rotate((angle * Math.PI) / 180)
@@ -399,7 +425,12 @@ const detectSkewAngle = (analysis: SkewAnalysis): number => {
   return Math.max(-MAX_SKEW, Math.min(MAX_SKEW, angle))
 }
 
-const rotateByAngle = (image: HTMLImageElement, angleDeg: number, transparent: boolean): string => {
+const rotateByAngle = (
+  image: HTMLImageElement,
+  angleDeg: number,
+  transparent: boolean,
+  bgColor = '#ffffff'
+): string => {
   const width = image.naturalWidth
   const height = image.naturalHeight
   if (!width || !height) throw new Error('图片尺寸无效')
@@ -413,7 +444,7 @@ const rotateByAngle = (image: HTMLImageElement, angleDeg: number, transparent: b
   context.imageSmoothingQuality = 'high'
 
   if (!transparent) {
-    context.fillStyle = '#ffffff'
+    context.fillStyle = bgColor
     context.fillRect(0, 0, width, height)
   }
 
@@ -508,7 +539,7 @@ export async function deskewImage(
   // 先处理 ±90° 整页旋转：转正文字行方向后再做精细校正
   if (detectTextLayout(analysis) === 'vertical') {
     quarterTurn = await chooseQuarterTurn(image, options.scoreUpright)
-    baseDataUrl = await rotateImage(dataUrl, quarterTurn)
+    baseDataUrl = await rotateImage(dataUrl, quarterTurn, options.bgColor)
     image = await loadImage(baseDataUrl)
     analysis = analyzeSkew(image)
   }
@@ -524,7 +555,9 @@ export async function deskewImage(
     quarterTurn,
     changed: true,
     dataUrl:
-      Math.abs(angle) < MIN_SKEW ? baseDataUrl : rotateByAngle(image, angle, analysis.transparent)
+      Math.abs(angle) < MIN_SKEW
+        ? baseDataUrl
+        : rotateByAngle(image, angle, analysis.transparent, options.bgColor)
   }
 }
 
@@ -551,7 +584,8 @@ const hasTransparency = (image: HTMLImageElement): boolean => {
 
 export async function deskewImageByLineAngle(
   dataUrl: string,
-  lineAngle: number
+  lineAngle: number,
+  bgColor = '#ffffff'
 ): Promise<DeskewResult> {
   const image = await loadImage(dataUrl)
   const angle = -lineAngle
@@ -564,7 +598,7 @@ export async function deskewImageByLineAngle(
     angle,
     quarterTurn: 0,
     changed: true,
-    dataUrl: rotateByAngle(image, angle, hasTransparency(image))
+    dataUrl: rotateByAngle(image, angle, hasTransparency(image), bgColor)
   }
 }
 
@@ -736,10 +770,12 @@ export function samplePixel(sampler: PixelSampler, x: number, y: number): Sample
 export function removeSimilarColor(
   sampler: PixelSampler,
   target: SampledColor,
-  tolerance: number
+  tolerance: number,
+  bgColor = '#ffffff'
 ): ColorRemovalResult {
   const { data } = sampler.imageData
   const limit = tolerance * tolerance
+  const fill = parseHexColor(bgColor)
   let changed = 0
 
   for (let i = 0; i < data.length; i += 4) {
@@ -751,9 +787,9 @@ export function removeSimilarColor(
 
     if (dr * dr + dg * dg + db * db > limit) continue
 
-    data[i] = 255
-    data[i + 1] = 255
-    data[i + 2] = 255
+    data[i] = fill.r
+    data[i + 1] = fill.g
+    data[i + 2] = fill.b
     changed += 1
   }
 
@@ -776,24 +812,25 @@ const blankRange = (
   width: number,
   row: number,
   from: number,
-  to: number
+  to: number,
+  fill: RgbColor
 ): number => {
   let changed = 0
 
   for (let x = from; x < to; x += 1) {
     const index = (row * width + x) * 4
     if (
-      data[index] === 255 &&
-      data[index + 1] === 255 &&
-      data[index + 2] === 255 &&
+      data[index] === fill.r &&
+      data[index + 1] === fill.g &&
+      data[index + 2] === fill.b &&
       data[index + 3] === 255
     ) {
       continue
     }
 
-    data[index] = 255
-    data[index + 1] = 255
-    data[index + 2] = 255
+    data[index] = fill.r
+    data[index + 1] = fill.g
+    data[index + 2] = fill.b
     data[index + 3] = 255
     changed += 1
   }
@@ -804,11 +841,13 @@ const blankRange = (
 export async function maskRegion(
   dataUrl: string,
   rect: RegionRect,
-  mode: RegionMode
+  mode: RegionMode,
+  bgColor = '#ffffff'
 ): Promise<ColorRemovalResult> {
   const sampler = await createPixelSampler(dataUrl)
   const { width, height, imageData, context, canvas } = sampler
   const { data } = imageData
+  const fill = parseHexColor(bgColor)
 
   const left = Math.max(0, Math.min(width - 1, Math.round(rect.x * width)))
   const top = Math.max(0, Math.min(height - 1, Math.round(rect.y * height)))
@@ -821,17 +860,17 @@ export async function maskRegion(
     const insideRow = row >= top && row < bottom
 
     if (mode === 'remove') {
-      if (insideRow) changed += blankRange(data, width, row, left, right)
+      if (insideRow) changed += blankRange(data, width, row, left, right, fill)
       continue
     }
 
     if (!insideRow) {
-      changed += blankRange(data, width, row, 0, width)
+      changed += blankRange(data, width, row, 0, width, fill)
       continue
     }
 
-    changed += blankRange(data, width, row, 0, left)
-    changed += blankRange(data, width, row, right, width)
+    changed += blankRange(data, width, row, 0, left, fill)
+    changed += blankRange(data, width, row, right, width, fill)
   }
 
   context.putImageData(imageData, 0, 0)
@@ -844,10 +883,15 @@ export interface CenterRegionResult extends ColorRemovalResult {
   offsetY: number
 }
 
-export async function centerRegion(dataUrl: string, rect: RegionRect): Promise<CenterRegionResult> {
+export async function centerRegion(
+  dataUrl: string,
+  rect: RegionRect,
+  bgColor = '#ffffff'
+): Promise<CenterRegionResult> {
   const sampler = await createPixelSampler(dataUrl)
   const { width, height, imageData, context, canvas } = sampler
   const { data } = imageData
+  const fill = parseHexColor(bgColor)
 
   const left = Math.max(0, Math.min(width - 1, Math.round(rect.x * width)))
   const top = Math.max(0, Math.min(height - 1, Math.round(rect.y * height)))
@@ -867,7 +911,12 @@ export async function centerRegion(dataUrl: string, rect: RegionRect): Promise<C
   const targetTop = Math.round((height - regionHeight) / 2)
 
   const output = new Uint8ClampedArray(width * height * 4)
-  output.fill(255)
+  for (let i = 0; i < output.length; i += 4) {
+    output[i] = fill.r
+    output[i + 1] = fill.g
+    output[i + 2] = fill.b
+    output[i + 3] = 255
+  }
 
   for (let row = 0; row < regionHeight; row += 1) {
     const to = ((targetTop + row) * width + targetLeft) * 4

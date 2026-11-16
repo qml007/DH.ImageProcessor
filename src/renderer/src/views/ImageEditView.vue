@@ -59,6 +59,23 @@ const positionText = computed(() =>
   currentIndex.value >= 0 ? `第 ${currentIndex.value + 1} 张 / 共 ${images.value.length} 张` : ''
 )
 
+// 当前批次底色：旋转、去色、保留居中、区域处理等需要填充背景的操作使用
+const batchBgColor = ref('#FFFFFF')
+
+const loadBatchBgColor = async (): Promise<void> => {
+  const batId = imageStore.batId
+  if (!batId) return
+
+  try {
+    const result = await window.api.getBatInfo({ batId })
+    if (result.ok && result.item?.bgColor) {
+      batchBgColor.value = result.item.bgColor
+    }
+  } catch (error) {
+    console.error('Failed to load batch bg color:', error)
+  }
+}
+
 const actions: EditAction[] = [
   {
     key: 'rotate-left',
@@ -105,21 +122,21 @@ const actions: EditAction[] = [
   {
     key: 'remove-color',
     label: '去色',
-    desc: '吸取颜色，将相近像素置为白色',
+    desc: '吸取颜色，将相近像素置为底色',
     variant: 'default',
     icon: ['M12 3.5c3.6 4 6.2 7.2 6.2 10.5a6.2 6.2 0 1 1-12.4 0c0-3.3 2.6-6.5 6.2-10.5z']
   },
   {
     key: 'discard',
     label: '去除',
-    desc: '将所选区域清空为白色',
+    desc: '将所选区域清空为底色',
     variant: 'danger',
     icon: ['M4 7h16', 'M9 7V5h6v2', 'M6 7l1 13h10l1-13', 'M10 11v5', 'M14 11v5']
   },
   {
     key: 'keep',
     label: '保留',
-    desc: '仅保留所选区域，其余清空为白色',
+    desc: '仅保留所选区域，其余清空为底色',
     variant: 'default',
     icon: ['M20 6 9 17l-5-5']
   },
@@ -495,7 +512,7 @@ const applyManualLine = async (angle: number): Promise<void> => {
 
   processing.value = true
   try {
-    const result = await deskewImageByLineAngle(target.dataUrl, angle)
+    const result = await deskewImageByLineAngle(target.dataUrl, angle, batchBgColor.value)
 
     if (!result.changed) {
       cancelManual()
@@ -704,7 +721,7 @@ const handleCanvasClick = async (event: MouseEvent): Promise<void> => {
 
   processing.value = true
   try {
-    const result = removeSimilarColor(current, color, COLOR_TOLERANCE)
+    const result = removeSimilarColor(current, color, COLOR_TOLERANCE, batchBgColor.value)
 
     if (!result.changed) {
       flashNotice('该颜色附近没有可替换的像素，请换一个位置点击')
@@ -724,7 +741,7 @@ const handleCanvasClick = async (event: MouseEvent): Promise<void> => {
     cancelPick()
     flashNotice(
       saved
-        ? `已将 ${result.changed} 个相近像素置为白色，结果已保存到临时文件夹`
+        ? `已将 ${result.changed} 个相近像素置为底色，结果已保存到临时文件夹`
         : '写入临时文件夹失败，去色结果未生效'
     )
   } catch (error) {
@@ -916,6 +933,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   void imageStore.ensureImageData(String(route.params.id))
   void loadArchiveFields()
+  void loadBatchBgColor()
   void nextTick(() => {
     observeStage()
     syncResolution()
@@ -1195,7 +1213,7 @@ const rotate = async (angle: RotationAngle): Promise<void> => {
 
   processing.value = true
   try {
-    const rotatedDataUrl = await rotateImage(target.dataUrl, angle)
+    const rotatedDataUrl = await rotateImage(target.dataUrl, angle, batchBgColor.value)
     const rotation = (target.rotation + angle + 360) % 360
     const done = await persistState(
       target,
@@ -1282,7 +1300,10 @@ const autoDeskew = async (): Promise<void> => {
 
   processing.value = true
   try {
-    const result = await deskewImage(target.dataUrl, { scoreUpright: scoreOrientation })
+    const result = await deskewImage(target.dataUrl, {
+      scoreUpright: scoreOrientation,
+      bgColor: batchBgColor.value
+    })
 
     if (!result.changed) {
       flashNotice(`检测到倾斜角 ${Math.abs(result.angle).toFixed(2)}°，未超过 0.5°，无需校正`)
@@ -1329,10 +1350,10 @@ const applySelection = async (mode: 'remove' | 'keep'): Promise<void> => {
 
   processing.value = true
   try {
-    const result = await maskRegion(target.dataUrl, current, mode)
+    const result = await maskRegion(target.dataUrl, current, mode, batchBgColor.value)
 
     if (!result.changed) {
-      flashNotice('所选区域已经是白色，无需处理')
+      flashNotice('所选区域已经是底色，无需处理')
       return
     }
 
@@ -1347,8 +1368,8 @@ const applySelection = async (mode: 'remove' | 'keep'): Promise<void> => {
     clearSelection()
     flashNotice(
       mode === 'remove'
-        ? `已将所选区域清空为白色（${result.changed} 个像素）`
-        : `已仅保留所选区域，其余 ${result.changed} 个像素清空为白色`
+        ? `已将所选区域清空为底色（${result.changed} 个像素）`
+        : `已仅保留所选区域，其余 ${result.changed} 个像素清空为底色`
     )
   } catch (error) {
     console.error(error)
@@ -1371,7 +1392,7 @@ const applyCenterSelection = async (): Promise<void> => {
 
   processing.value = true
   try {
-    const result = await centerRegion(target.dataUrl, current)
+    const result = await centerRegion(target.dataUrl, current, batchBgColor.value)
 
     if (!result.changed) {
       flashNotice('所选区域已经位于图片中央，无需处理')
@@ -1723,7 +1744,7 @@ const handleAction = (action: EditAction): void => {
               <span class="pick-dot" :style="{ backgroundColor: hoverRgb || 'transparent' }"></span>
               <span class="pick-text">
                 {{
-                  hoverColor ? '点击即将该颜色替换为白色' : '在图片上移动鼠标，选中要置为白色的颜色'
+                  hoverColor ? '点击即将该颜色替换为底色' : '在图片上移动鼠标，选中要置为底色的颜色'
                 }}
               </span>
               <button class="btn btn-sm" type="button" @click="cancelPick">取消</button>
