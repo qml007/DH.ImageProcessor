@@ -1,10 +1,13 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, net, protocol } from 'electron'
+import { execFile } from 'child_process'
+import { createHash } from 'crypto'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
+import { writeArchivesExcel } from './excel'
 import { recognizeDataUrl, recognizeImageWithCache, shutdownOcrWorker } from './ocr'
 import {
   closeDatabase,
@@ -137,6 +140,10 @@ interface PdfExportFailure {
   message: string
 }
 
+interface ArchiveExcelExportPayload {
+  batId: string
+}
+
 interface PdfExportArchiveResult {
   name: string
   fileName: string
@@ -188,6 +195,98 @@ async function ensureTempDir(): Promise<string> {
   const { tempDir } = await loadSettings()
   await mkdir(tempDir, { recursive: true })
   return tempDir
+}
+
+// 部分主板厂商会返回占位符，这类值不能作为指纹来源
+const INVALID_SERIAL_VALUES = new Set([
+  '',
+  'none',
+  'unknown',
+  'n/a',
+  'not specified',
+  'default string',
+  'to be filled by o.e.m.',
+  'system serial number',
+  'not available',
+  'invalid'
+])
+
+function normalizeSerial(raw: string): string {
+  const value = raw.trim()
+  return INVALID_SERIAL_VALUES.has(value.toLowerCase()) ? '' : value
+}
+
+function runCommand(file: string, args: string[]): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(file, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolvePromise(stdout)
+    })
+  })
+}
+
+async function readSerialFile(file: string): Promise<string> {
+  try {
+    return normalizeSerial(await readFile(file, 'utf8'))
+  } catch {
+    return ''
+  }
+}
+
+// Windows：通过 PowerShell 的 CIM 接口读取主板序列号
+async function readWindowsSerial(): Promise<string> {
+  const stdout = await runCommand('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    '(Get-CimInstance -ClassName Win32_BaseBoard).SerialNumber'
+  ])
+  return normalizeSerial(stdout)
+}
+
+// Linux：优先读取 DMI 中的主板序列号，普通用户无权限时退回系统机器标识
+async function readLinuxSerial(): Promise<string> {
+  const dmiFiles = ['/sys/class/dmi/id/board_serial', '/sys/class/dmi/id/product_serial']
+
+  for (const file of dmiFiles) {
+    const serial = await readSerialFile(file)
+    if (serial) return serial
+  }
+
+  const machineId =
+    (await readSerialFile('/etc/machine-id')) || (await readSerialFile('/var/lib/dbus/machine-id'))
+
+  if (machineId) return machineId
+
+  throw new Error('Unable to read a stable machine identifier')
+}
+
+// macOS：IOPlatformSerialNumber 为整机硬件序列号
+async function readDarwinSerial(): Promise<string> {
+  const stdout = await runCommand('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'])
+  const match = /"IOPlatformSerialNumber"\s*=\s*"([^"]+)"/.exec(stdout)
+  return normalizeSerial(match?.[1] ?? '')
+}
+
+async function readMachineSerial(): Promise<string> {
+  if (process.platform === 'win32') return readWindowsSerial()
+  if (process.platform === 'darwin') return readDarwinSerial()
+  return readLinuxSerial()
+}
+
+let machineCodeCache = ''
+
+async function getMachineCode(): Promise<string> {
+  if (machineCodeCache) return machineCodeCache
+
+  const serial = await readMachineSerial()
+  if (!serial) throw new Error('Empty machine serial number')
+
+  machineCodeCache = createHash('md5').update(serial).digest('hex')
+  return machineCodeCache
 }
 
 async function resolveTempPath(target: string): Promise<string | null> {
@@ -1190,6 +1289,53 @@ app.whenReady().then(() => {
     }
   })
 
+  // 导出当前批次全部档案的 Excel（每个档案一行，档案名称 + 批次字段）
+  ipcMain.handle(
+    'excel:export-archives',
+    async (event, payload: ArchiveExcelExportPayload) => {
+      try {
+        const batch = getBatInfo(payload.batId)
+        if (!batch) return { ok: false, message: '批次不存在' }
+
+        const archives = listArcInfo(payload.batId)
+        if (!archives.length) return { ok: false, message: '当前批次没有档案' }
+
+        const fields = listBatArcFieldInfo(payload.batId)
+        const headers = ['档案名称', ...fields.map((field) => field.fieldName)]
+        const rows = archives.map((archive) => {
+          const valueMap = new Map(
+            listArcFieldValue(archive.arcId).map((item) => [item.batFieldId, item.fieldValue])
+          )
+          return [archive.arcName, ...fields.map((field) => valueMap.get(field.id) ?? '')]
+        })
+
+        const win = BrowserWindow.fromWebContents(event.sender)
+        const options: Electron.SaveDialogOptions = {
+          title: '导出 Excel',
+          defaultPath: `${batch.batCode || '档案信息'}.xlsx`,
+          filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
+        }
+        const result = win
+          ? await dialog.showSaveDialog(win, options)
+          : await dialog.showSaveDialog(options)
+
+        if (result.canceled || !result.filePath) {
+          return { ok: false, canceled: true }
+        }
+
+        const filePath = /\.xlsx$/i.test(result.filePath)
+          ? result.filePath
+          : `${result.filePath}.xlsx`
+
+        await writeArchivesExcel(filePath, headers, rows)
+        return { ok: true, filePath, count: archives.length }
+      } catch (error) {
+        console.error('Failed to export archives to Excel:', error)
+        return { ok: false, message: '导出 Excel 失败，请稍后重试' }
+      }
+    }
+  )
+
   // Read the persisted application settings
   ipcMain.handle('settings:get', async () => {
     const settings = await loadSettings()
@@ -1226,6 +1372,16 @@ app.whenReady().then(() => {
     }
 
     return { canceled: false, settings: { ...next } }
+  })
+
+  // 本机识别码：主板序列号的 MD5
+  ipcMain.handle('settings:machine-code', async () => {
+    try {
+      return { ok: true, code: await getMachineCode() }
+    } catch (error) {
+      console.error('Failed to read machine code:', error)
+      return { ok: false, message: '无法读取本机识别码' }
+    }
   })
 
   // Open the temp directory in the system file explorer

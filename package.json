@@ -30,7 +30,8 @@
     "electron-updater": "^6.8.11",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.3.1",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",

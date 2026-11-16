@@ -46,6 +46,24 @@ export interface OpenTempDirResult {
   message: string
 }
 
+export interface MachineCodeResult {
+  ok: boolean
+  code?: string
+  message?: string
+}
+
+export interface ArchiveExcelExportPayload {
+  batId: string
+}
+
+export interface ArchiveExcelExportResult {
+  ok: boolean
+  canceled?: boolean
+  filePath?: string
+  count?: number
+  message?: string
+}
+
 export interface SaveTempImagePayload {
   arcId: string
   imageId: string
@@ -679,11 +697,15 @@ export interface RendererApi {
   getSettings: () => Promise<AppSettings>
   selectTempDir: () => Promise<SelectTempDirResult>
   openTempDir: () => Promise<OpenTempDirResult>
+  getMachineCode: () => Promise<MachineCodeResult>
   saveTempImage: (payload: SaveTempImagePayload) => Promise<SaveTempImageResult>
   readTempImage: (payload: ReadTempImagePayload) => Promise<ReadTempImageResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>
+  exportArchiveExcel: (
+    payload: ArchiveExcelExportPayload
+  ) => Promise<ArchiveExcelExportResult>
   getDatabaseInfo: () => Promise<DatabaseInfoResult>
   listConfig: () => Promise<ConfigListResult>
   getConfig: (payload: ConfigGetPayload) => Promise<ConfigGetResult>

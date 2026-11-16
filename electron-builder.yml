@@ -27,7 +27,7 @@ extraResources:
   - from: resources/fonts
     to: fonts
 win:
-  executableName: test2
+  executableName: DHImageProcessor
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

@@ -96,6 +96,7 @@ const currentImageId = ref<string | null>(null)
 const markAnchorId = ref<string | null>(null)
 
 const exporting = ref(false)
+const excelExporting = ref(false)
 
 const exportOptions = reactive({
   visible: false,
@@ -499,6 +500,33 @@ const closeExportModal = (): void => {
   exportState.visible = false
 }
 
+const exportExcel = async (): Promise<void> => {
+  if (excelExporting.value) return
+
+  if (!archives.value.length) {
+    flashMessage('当前批次没有档案，无法导出 Excel')
+    return
+  }
+
+  excelExporting.value = true
+  try {
+    const result = await window.api.exportArchiveExcel({ batId: imageStore.batId })
+    if (result.canceled) return
+
+    if (!result.ok) {
+      flashMessage(result.message || '导出 Excel 失败')
+      return
+    }
+
+    flashMessage(`已导出 ${result.count ?? archives.value.length} 个档案的 Excel 文件`)
+  } catch (error) {
+    console.error(error)
+    flashMessage('导出 Excel 失败，请稍后重试')
+  } finally {
+    excelExporting.value = false
+  }
+}
+
 const removeImage = async (target: EditableImage): Promise<void> => {
   await imageStore.remove(target.id)
   selectedIds.value = selectedIds.value.filter((item) => item !== target.id)
@@ -803,27 +831,137 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
             列表
           </button>
         </div>
-        <button class="btn" type="button" :disabled="!images.length" @click="clearAll">清空</button>
-        <button
-          class="btn btn-primary"
-          type="button"
-          :disabled="loading || !batchId"
-          @click="importImages"
-        >
-          {{ loading ? '读取中...' : '导入图像/PDF' }}
-        </button>
-        <button class="btn" type="button" :disabled="loading || !batchId" @click="importFolder">
-          {{ loading ? '读取中...' : '导入文件夹' }}
-        </button>
-        <button
-          class="btn"
-          type="button"
-          :disabled="exporting || !exportTargets.length"
-          :title="exportTargets.length ? '按档案导出 PDF' : '请先把图像移到默认档案之外'"
-          @click="openExportOptions"
-        >
-          {{ exporting ? '导出中...' : '导出 PDF' }}
-        </button>
+        <div class="action-group">
+          <div class="action-subgroup">
+            <button
+              class="btn btn-icon"
+              type="button"
+              title="清空当前档案的图像"
+              aria-label="清空当前档案的图像"
+              :disabled="!images.length"
+              @click="clearAll"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M4 7h16" />
+                <path d="M9 7V5h6v2" />
+                <path d="M6 7l1 13h10l1-13" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </button>
+          </div>
+          <div class="action-subgroup">
+            <button
+              class="btn btn-icon"
+              type="button"
+              :title="loading ? '读取中…' : '导入图像/PDF'"
+              aria-label="导入图像/PDF"
+              :disabled="loading || !batchId"
+              @click="importImages"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <circle cx="8.5" cy="10" r="1.5" />
+                <path d="m5 19 4.5-4.5 3 3L16 14l4 4" />
+                <path d="M18 2v5" />
+                <path d="M15.5 4.5h5" />
+              </svg>
+            </button>
+            <button
+              class="btn btn-icon"
+              type="button"
+              :title="loading ? '读取中…' : '导入文件夹'"
+              aria-label="导入文件夹"
+              :disabled="loading || !batchId"
+              @click="importFolder"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <path d="M12 11v6" />
+                <path d="M9 14h6" />
+              </svg>
+            </button>
+          </div>
+          <div class="action-subgroup">
+            <button
+              class="btn btn-icon"
+              type="button"
+              :title="
+                exporting
+                  ? '正在导出 PDF…'
+                  : exportTargets.length
+                    ? '按档案导出 PDF'
+                    : '请先把图像移到默认档案之外'
+              "
+              aria-label="导出 PDF"
+              :disabled="exporting || !exportTargets.length"
+              @click="openExportOptions"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                <path d="M14 3v5h5" />
+                <path d="M12 11v6" />
+                <path d="m9 14 3 3 3-3" />
+              </svg>
+            </button>
+            <button
+              class="btn btn-icon"
+              type="button"
+              :title="
+                excelExporting
+                  ? '正在导出 Excel…'
+                  : archives.length
+                    ? '导出当前批次所有档案的字段信息'
+                    : '当前批次还没有档案'
+              "
+              aria-label="导出 Excel"
+              :disabled="excelExporting || !archives.length"
+              @click="exportExcel"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M3 9h18" />
+                <path d="M3 14h18" />
+                <path d="M10 9v11" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1058,6 +1196,13 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
             开始导出
           </button>
         </div>
+      </div>
+    </div>
+
+    <div v-if="excelExporting" class="export-mask">
+      <div class="export-dialog excel-dialog">
+        <h3 class="export-title">导出 Excel</h3>
+        <p class="excel-export-tip">正在导出档案信息，请稍候…</p>
       </div>
     </div>
 
@@ -1301,6 +1446,56 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
   color: #fff;
 }
 
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-subgroup {
+  display: flex;
+  align-items: center;
+}
+
+.action-subgroup .btn {
+  border-radius: 0;
+}
+
+.action-subgroup .btn + .btn {
+  margin-left: -1px;
+}
+
+.action-subgroup .btn:first-child {
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.action-subgroup .btn:last-child {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.action-subgroup .btn:hover {
+  position: relative;
+  z-index: 1;
+}
+
+.action-group .btn-icon {
+  width: 36px;
+  padding: 0;
+}
+
+.action-group .btn-icon svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.action-group .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .summary {
   display: flex;
   align-items: baseline;
@@ -1516,6 +1711,16 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
   font-size: 15px;
   font-weight: 600;
   color: var(--color-text-1);
+}
+
+.excel-dialog {
+  width: 320px;
+}
+
+.excel-export-tip {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--color-text-2);
 }
 
 .export-dir {

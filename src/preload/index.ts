@@ -9,6 +9,7 @@ const api = {
   getSettings: (): Promise<unknown> => ipcRenderer.invoke('settings:get'),
   selectTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:select-temp-dir'),
   openTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:open-temp-dir'),
+  getMachineCode: (): Promise<unknown> => ipcRenderer.invoke('settings:machine-code'),
   saveTempImage: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:save-temp', payload),
   readImageFile: (payload: unknown): Promise<unknown> =>
@@ -19,6 +20,8 @@ const api = {
     ipcRenderer.invoke('image:delete-temp', payload),
   selectPdfFolder: (): Promise<unknown> => ipcRenderer.invoke('pdf:select-folder'),
   exportPdf: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('pdf:export', payload),
+  exportArchiveExcel: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('excel:export-archives', payload),
   getDatabaseInfo: (): Promise<unknown> => ipcRenderer.invoke('db:info'),
   listConfig: (): Promise<unknown> => ipcRenderer.invoke('db:config-list'),
   getConfig: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('db:config-get', payload),

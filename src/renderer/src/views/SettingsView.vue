@@ -4,10 +4,7 @@ import Versions from '../components/Versions.vue'
 
 const settings = reactive({
   appName: 'Electron 后台管理系统',
-  description: '基于 Electron + Vue 3 + TypeScript 构建的桌面端管理平台。',
-  refreshInterval: '30',
-  enableNotice: true,
-  enableAudit: false
+  description: '基于 Electron + Vue 3 + TypeScript 构建的桌面端管理平台。'
 })
 
 const savedMessage = ref('')
@@ -16,6 +13,23 @@ const ipcMessage = ref('')
 const tempDir = ref('')
 const tempDirBusy = ref(false)
 const tempDirMessage = ref('')
+
+const machineCode = ref('')
+const machineCodeMessage = ref('读取中...')
+
+const loadMachineCode = async (): Promise<void> => {
+  try {
+    const result = await window.api.getMachineCode()
+    if (result.ok && result.code) {
+      machineCode.value = result.code
+    } else {
+      machineCodeMessage.value = result.message || '无法读取本机识别码'
+    }
+  } catch (error) {
+    console.error(error)
+    machineCodeMessage.value = '无法读取本机识别码'
+  }
+}
 
 const flashTempDirMessage = (text: string): void => {
   tempDirMessage.value = text
@@ -64,7 +78,10 @@ const openTempDir = async (): Promise<void> => {
   }
 }
 
-onMounted(loadTempDir)
+onMounted(() => {
+  void loadTempDir()
+  void loadMachineCode()
+})
 
 const save = (): void => {
   savedMessage.value = '设置已保存'
@@ -103,38 +120,11 @@ const testIpc = (): void => {
               <label class="form-label" for="app-name">系统名称</label>
               <input id="app-name" v-model="settings.appName" class="input" type="text" />
             </div>
-            <div class="form-item">
-              <label class="form-label" for="refresh-interval">数据刷新间隔</label>
-              <select id="refresh-interval" v-model="settings.refreshInterval" class="select">
-                <option value="10">10 秒</option>
-                <option value="30">30 秒</option>
-                <option value="60">60 秒</option>
-                <option value="300">5 分钟</option>
-              </select>
-            </div>
             <div class="form-item form-item-full">
               <label class="form-label" for="app-desc">系统描述</label>
               <textarea id="app-desc" v-model="settings.description" class="textarea"></textarea>
             </div>
           </div>
-
-          <div class="switch-list">
-            <div class="switch-row">
-              <div>
-                <p class="switch-label">开启消息通知</p>
-                <p class="form-hint">系统告警与审批结果会通过桌面通知提醒。</p>
-              </div>
-              <input v-model="settings.enableNotice" class="switch" type="checkbox" />
-            </div>
-            <div class="switch-row">
-              <div>
-                <p class="switch-label">记录操作审计日志</p>
-                <p class="form-hint">保存管理员的关键操作记录，便于追溯。</p>
-              </div>
-              <input v-model="settings.enableAudit" class="switch" type="checkbox" />
-            </div>
-          </div>
-
           <div class="form-actions">
             <button class="btn btn-primary" type="button" @click="save">保存设置</button>
             <button class="btn" type="button">恢复默认</button>
@@ -149,6 +139,10 @@ const testIpc = (): void => {
         </div>
         <div class="card-body">
           <Versions />
+          <div class="machine-code">
+            <span class="machine-code-label">本机识别码</span>
+            <strong class="machine-code-value">{{ machineCode || machineCodeMessage }}</strong>
+          </div>
           <div class="about-actions">
             <button class="btn btn-sm" type="button" @click="testIpc">测试 IPC 通道</button>
             <span v-if="ipcMessage" class="ipc-tip">{{ ipcMessage }}</span>
@@ -287,6 +281,29 @@ const testIpc = (): void => {
 .ipc-tip {
   font-size: 12px;
   color: var(--color-success);
+}
+
+.machine-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-2);
+}
+
+.machine-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  letter-spacing: 0.5px;
+  text-align: right;
+  word-break: break-all;
+  user-select: text;
 }
 
 @media (max-width: 1080px) {
