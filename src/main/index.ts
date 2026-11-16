@@ -19,6 +19,8 @@ import {
   createArcType,
   createBatArcFieldInfo,
   createBatInfoWithSnapshot,
+  DEFAULT_BG_COLOR,
+  DEFAULT_BG_COLOR_CONFIG_KEY,
   deleteArcFieldInfo,
   deleteArcImage,
   deleteArcInfo,
@@ -39,6 +41,7 @@ import {
   listBatArcFieldInfo,
   listBatInfo,
   listConfig,
+  normalizeBgColor,
   setConfig,
   truncateArcImageHistory,
   updateArcFieldInfo,
@@ -119,6 +122,7 @@ interface PdfSourceFile {
 
 interface AppSettings {
   tempDir: string
+  defaultBgColor: string
 }
 
 interface PdfExportArchive {
@@ -173,13 +177,20 @@ function defaultTempDir(): string {
 async function loadSettings(): Promise<AppSettings> {
   if (settingsCache) return settingsCache
 
-  const fallback: AppSettings = { tempDir: defaultTempDir() }
+  const fallback: AppSettings = {
+    tempDir: defaultTempDir(),
+    defaultBgColor: DEFAULT_BG_COLOR
+  }
 
   try {
-    const row = getConfig(TEMP_DIR_CONFIG_KEY)
-    settingsCache = { tempDir: row?.configValue.trim() || fallback.tempDir }
+    const tempRow = getConfig(TEMP_DIR_CONFIG_KEY)
+    const bgColorRow = getConfig(DEFAULT_BG_COLOR_CONFIG_KEY)
+    settingsCache = {
+      tempDir: tempRow?.configValue.trim() || fallback.tempDir,
+      defaultBgColor: normalizeBgColor(bgColorRow?.configValue) || fallback.defaultBgColor
+    }
   } catch (error) {
-    console.error('Failed to read temp dir setting from database:', error)
+    console.error('Failed to read settings from database:', error)
     settingsCache = fallback
   }
 
@@ -188,6 +199,7 @@ async function loadSettings(): Promise<AppSettings> {
 
 async function saveSettings(next: AppSettings): Promise<void> {
   setConfig(TEMP_DIR_CONFIG_KEY, next.tempDir, '临时文件夹路径')
+  setConfig(DEFAULT_BG_COLOR_CONFIG_KEY, next.defaultBgColor, '默认底色')
   settingsCache = next
 }
 
@@ -648,7 +660,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'batInfo:create',
-    (_event, payload: { arcTypeId: string; status?: number; sortNo?: number; memo?: string }) => {
+    (
+      _event,
+      payload: {
+        arcTypeId: string
+        status?: number
+        sortNo?: number
+        bgColor?: string
+        memo?: string
+      }
+    ) => {
       try {
         return {
           ok: true,
@@ -656,6 +677,7 @@ app.whenReady().then(() => {
             arcTypeId: payload.arcTypeId,
             status: payload.status,
             sortNo: payload.sortNo,
+            bgColor: payload.bgColor,
             memo: payload.memo
           })
         }
@@ -669,7 +691,14 @@ app.whenReady().then(() => {
     'batInfo:update',
     (
       _event,
-      payload: { batId: string; arcTypeId: string; status?: number; sortNo?: number; memo?: string }
+      payload: {
+        batId: string
+        arcTypeId: string
+        status?: number
+        sortNo?: number
+        bgColor?: string
+        memo?: string
+      }
     ) => {
       try {
         return {
@@ -678,6 +707,7 @@ app.whenReady().then(() => {
             arcTypeId: payload.arcTypeId,
             status: payload.status,
             sortNo: payload.sortNo,
+            bgColor: payload.bgColor,
             memo: payload.memo
           })
         }
@@ -1361,7 +1391,7 @@ app.whenReady().then(() => {
       return { canceled: true, settings: { ...current } }
     }
 
-    const next: AppSettings = { tempDir: result.filePaths[0] }
+    const next: AppSettings = { ...current, tempDir: result.filePaths[0] }
 
     try {
       await mkdir(next.tempDir, { recursive: true })
@@ -1372,6 +1402,22 @@ app.whenReady().then(() => {
     }
 
     return { canceled: false, settings: { ...next } }
+  })
+
+  // 设置系统默认底色（新增批次时作为批次 bgColor 的默认值）
+  ipcMain.handle('settings:set-default-bg-color', async (_event, payload: { color: string }) => {
+    const color = normalizeBgColor(payload?.color)
+    if (!color) return { ok: false, message: '颜色格式无效，应为 #RRGGBB' }
+
+    try {
+      const current = await loadSettings()
+      const next: AppSettings = { ...current, defaultBgColor: color }
+      await saveSettings(next)
+      return { ok: true, settings: { ...next } }
+    } catch (error) {
+      console.error('Failed to save default bg color:', error)
+      return { ok: false, message: '保存默认底色失败' }
+    }
   })
 
   // 本机识别码：主板序列号的 MD5

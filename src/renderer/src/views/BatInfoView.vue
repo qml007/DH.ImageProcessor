@@ -12,6 +12,7 @@ interface BatInfoRow {
   timeOfCreate: string
   status: number
   sortNo: number
+  bgColor: string
   memo: string
 }
 
@@ -25,6 +26,7 @@ const items = ref<BatInfoRow[]>([])
 const arcTypeOptions = ref<ArcTypeOption[]>([])
 const loading = ref(false)
 const error = ref('')
+const defaultBgColor = ref('#FFFFFF')
 
 const modalVisible = ref(false)
 const editing = ref<BatInfoRow | null>(null)
@@ -32,6 +34,7 @@ const form = reactive({
   arcTypeId: '',
   status: 0,
   sortNo: 0,
+  bgColor: '#FFFFFF',
   memo: ''
 })
 const formError = ref('')
@@ -77,8 +80,17 @@ const loadArcTypes = async (): Promise<void> => {
   }
 }
 
+const loadDefaultBgColor = async (): Promise<void> => {
+  try {
+    const settings = await window.api.getSettings()
+    defaultBgColor.value = settings.defaultBgColor || '#FFFFFF'
+  } catch {
+    // 读取失败时使用白色兜底，不影响页面使用
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([loadList(), loadArcTypes()])
+  await Promise.all([loadList(), loadArcTypes(), loadDefaultBgColor()])
 })
 
 const openCreate = (): void => {
@@ -86,6 +98,7 @@ const openCreate = (): void => {
   form.arcTypeId = arcTypeOptions.value[0]?.typeId ?? ''
   form.status = 0
   form.sortNo = items.value.length ? Math.max(...items.value.map((i) => i.sortNo)) + 1 : 1
+  form.bgColor = defaultBgColor.value
   form.memo = ''
   formError.value = ''
   modalVisible.value = true
@@ -96,6 +109,7 @@ const openEdit = (row: BatInfoRow): void => {
   form.arcTypeId = row.arcTypeId
   form.status = row.status
   form.sortNo = row.sortNo
+  form.bgColor = row.bgColor || '#FFFFFF'
   form.memo = row.memo
   formError.value = ''
   modalVisible.value = true
@@ -113,6 +127,7 @@ const submitForm = async (): Promise<void> => {
       arcTypeId: form.arcTypeId,
       status: form.status,
       sortNo: form.sortNo,
+      bgColor: form.bgColor,
       memo: form.memo.trim()
     }
     const result = editing.value
@@ -171,6 +186,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
               <th>建立时间</th>
               <th>状态</th>
               <th>排序号</th>
+              <th>底色</th>
               <th>备注</th>
               <th class="col-actions">操作</th>
             </tr>
@@ -190,6 +206,13 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
                 </span>
               </td>
               <td class="mono-cell">{{ row.sortNo }}</td>
+              <td class="color-cell">
+                <span
+                  class="color-swatch"
+                  :style="{ backgroundColor: row.bgColor || '#FFFFFF' }"
+                ></span>
+                <code class="color-code">{{ row.bgColor || '#FFFFFF' }}</code>
+              </td>
               <td class="memo-cell">{{ row.memo || '—' }}</td>
               <td class="col-actions">
                 <button
@@ -266,6 +289,14 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
             <input id="bat-sort" v-model.number="form.sortNo" class="input" type="number" min="0" />
           </div>
           <div class="form-item modal-gap">
+            <label class="form-label" for="bat-bg-color">底色</label>
+            <div class="color-field">
+              <input id="bat-bg-color" v-model="form.bgColor" class="color-input" type="color" />
+              <span class="color-value">{{ form.bgColor }}</span>
+            </div>
+            <p v-if="!editing" class="form-hint">默认取系统设置中的默认底色。</p>
+          </div>
+          <div class="form-item modal-gap">
             <label class="form-label" for="bat-memo">备注</label>
             <textarea
               id="bat-memo"
@@ -336,6 +367,49 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.color-cell {
+  white-space: nowrap;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  vertical-align: -3px;
+}
+
+.color-code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+}
+
+.color-input {
+  width: 48px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  cursor: pointer;
+}
+
+.color-value {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-2);
 }
 
 textarea.input {

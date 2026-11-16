@@ -259,8 +259,8 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
             <tr>
               <th style="width: 70px">顺序号</th>
               <th>字段名称</th>
-              <th style="width: 100px">字段类型</th>
-              <th style="width: 90px">是否必须</th>
+              <th>字段类型</th>
+              <th>是否必须</th>
               <th>备注</th>
               <th class="col-actions">操作</th>
             </tr>
@@ -316,10 +316,10 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
           <thead>
             <tr>
               <th>档案名称</th>
-              <th style="width: 100px">图像数量</th>
-              <th style="width: 90px">状态</th>
-              <th style="width: 150px">建立时间</th>
-              <th style="width: 100px">备注</th>
+              <th>图像数量</th>
+              <th>状态</th>
+              <th>建立时间</th>
+              <th>备注</th>
               <th class="col-actions">操作</th>
             </tr>
           </thead>
@@ -328,7 +328,7 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
               <td>
                 <strong>{{ arc.arcName }}</strong>
               </td>
-              <td class="mono-cell">{{ archiveImageCounts[arc.arcId] ?? 0 }}</td>
+              <td class="mono-cell" style="text-align: left">{{ archiveImageCounts[arc.arcId] ?? 0 }}</td>
               <td>
                 <span class="tag" :class="arc.status === 1 ? 'tag-success' : 'tag-neutral'">
                   {{ arc.status === 1 ? '已完成' : '进行中' }}

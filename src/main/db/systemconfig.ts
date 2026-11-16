@@ -1,5 +1,17 @@
 import { getDatabase } from './connection'
 
+/** 系统默认底色配置键 */
+export const DEFAULT_BG_COLOR_CONFIG_KEY = 'defaultBGColor'
+
+/** 未配置默认底色时使用的兜底值 */
+export const DEFAULT_BG_COLOR = '#FFFFFF'
+
+/** 校验并规范化为 #RRGGBB，非法值返回空字符串 */
+export const normalizeBgColor = (value?: string): string => {
+  const color = value?.trim() ?? ''
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : ''
+}
+
 export interface SystemConfigRow {
   configKey: string
   configValue: string

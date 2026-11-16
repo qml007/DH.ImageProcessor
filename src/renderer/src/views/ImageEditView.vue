@@ -1260,27 +1260,53 @@ const applyColorEffect = async (mode: 'grayscale' | 'vintage' | 'sharpen'): Prom
   }
 }
 
+// 对候选方向图做 OCR 打分，用于判断 ±90° 中哪个方向才是正立
+const scoreOrientation = async (candidate: string): Promise<number> => {
+  try {
+    const result = await window.api.recognizeRegion({ dataUrl: candidate })
+    if (!result.ok || !result.lines?.length) return 0
+
+    return result.lines.reduce(
+      (sum, line) => sum + line.score * Math.max(line.text.replace(/\s+/g, '').length, 1),
+      0
+    )
+  } catch (error) {
+    console.error('Failed to score orientation:', error)
+    return 0
+  }
+}
+
 const autoDeskew = async (): Promise<void> => {
   const target = image.value
   if (!target || processing.value) return
 
   processing.value = true
   try {
-    const result = await deskewImage(target.dataUrl)
+    const result = await deskewImage(target.dataUrl, { scoreUpright: scoreOrientation })
 
     if (!result.changed) {
       flashNotice(`检测到倾斜角 ${Math.abs(result.angle).toFixed(2)}°，未超过 0.5°，无需校正`)
       return
     }
 
-    const correction = Math.abs(result.angle).toFixed(2)
-    const rotation = Number(((target.rotation + result.angle + 360) % 360).toFixed(1))
-    const done = await persistState(target, result.dataUrl, rotation, `校正倾斜 ${correction}°`)
+    const parts: string[] = []
+    if (result.quarterTurn) {
+      parts.push(
+        `自动${result.quarterTurn > 0 ? '顺' : '逆'}时针转正 ${Math.abs(result.quarterTurn)}°`
+      )
+    }
+    if (Math.abs(result.angle) >= 0.5) {
+      parts.push(`校正倾斜 ${Math.abs(result.angle).toFixed(2)}°`)
+    }
+
+    const summary = parts.join('，')
+    const rotation = Number(
+      ((target.rotation + result.quarterTurn + result.angle + 360) % 360).toFixed(1)
+    )
+    const done = await persistState(target, result.dataUrl, rotation, summary)
 
     flashNotice(
-      done
-        ? `已校正倾斜角 ${correction}°，结果已保存到临时文件夹`
-        : '写入临时文件夹失败，校正结果未生效'
+      done ? `已${summary}，结果已保存到临时文件夹` : '写入临时文件夹失败，校正结果未生效'
     )
   } catch (error) {
     console.error(error)

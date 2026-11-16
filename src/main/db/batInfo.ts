@@ -4,6 +4,12 @@ import { getArcType } from './arcType'
 import { listArcFieldInfo } from './arcFieldInfo'
 import { deleteBatArcFieldInfoByBatId, snapshotArcFieldsToBatch } from './batArcFieldInfo'
 import { deleteArcInfoByBat } from './arcInfo'
+import {
+  DEFAULT_BG_COLOR,
+  DEFAULT_BG_COLOR_CONFIG_KEY,
+  getConfig,
+  normalizeBgColor
+} from './systemconfig'
 
 export interface BatInfoRow {
   batId: string
@@ -13,6 +19,7 @@ export interface BatInfoRow {
   timeOfCreate: string
   status: number
   sortNo: number
+  bgColor: string
   memo: string
 }
 
@@ -28,8 +35,13 @@ export interface BatInfoInput {
   status?: number
   /** 默认 0 */
   sortNo?: number
+  /** 不传则取系统设置中的默认底色 */
+  bgColor?: string
   memo?: string
 }
+
+const defaultBgColor = (): string =>
+  normalizeBgColor(getConfig(DEFAULT_BG_COLOR_CONFIG_KEY)?.configValue) || DEFAULT_BG_COLOR
 
 const mapBatInfoRow = (row: {
   batId: string
@@ -39,6 +51,7 @@ const mapBatInfoRow = (row: {
   timeOfCreate: string
   status: number
   sortNo: number
+  bgColor: string
   memo: string | null
 }): BatInfoRow => ({
   batId: row.batId,
@@ -48,10 +61,12 @@ const mapBatInfoRow = (row: {
   timeOfCreate: row.timeOfCreate,
   status: row.status,
   sortNo: row.sortNo,
+  bgColor: row.bgColor,
   memo: row.memo ?? ''
 })
 
-const SELECT_COLS = 'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, memo'
+const SELECT_COLS =
+  'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo'
 
 // 生成当日批次编号：b_yyyymmdd_xxx，xxx 为当日序号（3 位补零）
 // 调用方须在事务内使用，保证 count 与 insert 之间无并发插入
@@ -107,10 +122,11 @@ export function createBatInfo(input: BatInfoInput): BatInfoRow {
     const batId = generateSnowflakeId()
     const batCode = input.batCode?.trim() || nextBatCode(batCodePrefixOfToday())
     const timeOfCreate = input.timeOfCreate ?? new Date().toISOString()
+    const bgColor = normalizeBgColor(input.bgColor) || defaultBgColor()
 
     db.prepare(
-      `INSERT INTO batInfo (batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, memo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO batInfo (batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       batId,
       batCode,
@@ -119,6 +135,7 @@ export function createBatInfo(input: BatInfoInput): BatInfoRow {
       timeOfCreate,
       input.status ?? BAT_STATUS_IN_PROGRESS,
       input.sortNo ?? 0,
+      bgColor,
       input.memo ?? ''
     )
     return batId
@@ -146,7 +163,7 @@ export function updateBatInfo(
 
   const info = db
     .prepare(
-      `UPDATE batInfo SET batCode = ?, arcTypeId = ?, arcTypeName = ?, status = ?, sortNo = ?, memo = ?
+      `UPDATE batInfo SET batCode = ?, arcTypeId = ?, arcTypeName = ?, status = ?, sortNo = ?, bgColor = ?, memo = ?
        WHERE batId = ?`
     )
     .run(
@@ -155,6 +172,7 @@ export function updateBatInfo(
       arcTypeName,
       input.status ?? existing.status,
       input.sortNo ?? existing.sortNo,
+      normalizeBgColor(input.bgColor) || existing.bgColor,
       input.memo ?? existing.memo,
       batId
     )

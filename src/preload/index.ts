@@ -10,6 +10,8 @@ const api = {
   selectTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:select-temp-dir'),
   openTempDir: (): Promise<unknown> => ipcRenderer.invoke('settings:open-temp-dir'),
   getMachineCode: (): Promise<unknown> => ipcRenderer.invoke('settings:machine-code'),
+  setDefaultBgColor: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('settings:set-default-bg-color', payload),
   saveTempImage: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:save-temp', payload),
   readImageFile: (payload: unknown): Promise<unknown> =>

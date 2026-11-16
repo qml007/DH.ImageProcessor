@@ -14,6 +14,10 @@ const tempDir = ref('')
 const tempDirBusy = ref(false)
 const tempDirMessage = ref('')
 
+const defaultBgColor = ref('#FFFFFF')
+const bgColorBusy = ref(false)
+const bgColorMessage = ref('')
+
 const machineCode = ref('')
 const machineCodeMessage = ref('读取中...')
 
@@ -38,13 +42,42 @@ const flashTempDirMessage = (text: string): void => {
   }, 2500)
 }
 
-const loadTempDir = async (): Promise<void> => {
+const loadSettings = async (): Promise<void> => {
   try {
     const config = await window.api.getSettings()
     tempDir.value = config.tempDir
+    defaultBgColor.value = config.defaultBgColor || '#FFFFFF'
   } catch (error) {
     console.error(error)
     flashTempDirMessage('读取临时文件夹配置失败')
+  }
+}
+
+const flashBgColorMessage = (text: string): void => {
+  bgColorMessage.value = text
+  window.setTimeout(() => {
+    bgColorMessage.value = ''
+  }, 2500)
+}
+
+const saveDefaultBgColor = async (): Promise<void> => {
+  if (bgColorBusy.value) return
+
+  bgColorBusy.value = true
+  try {
+    const result = await window.api.setDefaultBgColor({ color: defaultBgColor.value })
+    if (!result.ok || !result.settings) {
+      flashBgColorMessage(result.message || '保存默认底色失败')
+      return
+    }
+
+    defaultBgColor.value = result.settings.defaultBgColor
+    flashBgColorMessage('默认底色已保存')
+  } catch (error) {
+    console.error(error)
+    flashBgColorMessage('保存默认底色失败')
+  } finally {
+    bgColorBusy.value = false
   }
 }
 
@@ -79,7 +112,7 @@ const openTempDir = async (): Promise<void> => {
 }
 
 onMounted(() => {
-  void loadTempDir()
+  void loadSettings()
   void loadMachineCode()
 })
 
@@ -119,6 +152,22 @@ const testIpc = (): void => {
             <div class="form-item">
               <label class="form-label" for="app-name">系统名称</label>
               <input id="app-name" v-model="settings.appName" class="input" type="text" />
+            </div>
+            <div class="form-item">
+              <label class="form-label" for="default-bg-color">默认底色</label>
+              <div class="color-field">
+                <input
+                  id="default-bg-color"
+                  v-model="defaultBgColor"
+                  class="color-input"
+                  type="color"
+                  :disabled="bgColorBusy"
+                  @change="saveDefaultBgColor"
+                />
+                <span class="color-value">{{ defaultBgColor }}</span>
+                <span v-if="bgColorMessage" class="color-tip">{{ bgColorMessage }}</span>
+              </div>
+              <p class="form-hint">新增批次时默认使用该底色。</p>
             </div>
             <div class="form-item form-item-full">
               <label class="form-label" for="app-desc">系统描述</label>
@@ -248,6 +297,39 @@ const testIpc = (): void => {
 
 .form-actions {
   margin-top: 20px;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+}
+
+.color-input {
+  width: 48px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  cursor: pointer;
+}
+
+.color-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.color-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+
+.color-tip {
+  font-size: 12px;
+  color: var(--color-success);
 }
 
 .temp-card {

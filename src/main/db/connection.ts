@@ -57,6 +57,7 @@ const createSchema = (db: Database.Database): void => {
       timeOfCreate TEXT NOT NULL,
       status INTEGER NOT NULL DEFAULT 0,
       sortNo INTEGER NOT NULL DEFAULT 0,
+      bgColor TEXT NOT NULL DEFAULT '#FFFFFF',
       memo TEXT
     );
 
@@ -164,6 +165,7 @@ const ensureColumn = (
 
 const migrateSchema = (db: Database.Database): void => {
   ensureColumn(db, 'batInfo', 'memo', 'memo TEXT')
+  ensureColumn(db, 'batInfo', 'bgColor', "bgColor TEXT NOT NULL DEFAULT '#FFFFFF'")
 }
 
 const openDatabase = (file: string): Database.Database => {

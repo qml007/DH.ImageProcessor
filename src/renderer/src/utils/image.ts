@@ -1,9 +1,17 @@
 export type RotationAngle = 90 | -90
 
 export interface DeskewResult {
+  /** 精细校正的倾斜角 */
   angle: number
+  /** 为转正文字方向额外执行的 90° 整转（0 / 90 / -90） */
+  quarterTurn: number
   changed: boolean
   dataUrl: string
+}
+
+export interface DeskewOptions {
+  /** 候选图的正立程度打分（分值越大越可信），用于在 ±90° 两个方向中择优 */
+  scoreUpright?: (dataUrl: string) => Promise<number>
 }
 
 const ANALYSIS_MAX_SIDE = 640
@@ -14,6 +22,12 @@ const REFINE_STEP = 0.02
 const MIN_SKEW = 0.5
 const MIN_PROMINENCE = 0.15
 const RIVAL_WINDOW = 3
+/** 整页方向判定：粗扫角度范围与步长 */
+const ORIENTATION_STEP = 5
+/** 文字行方向偏离水平/垂直轴超过该角度时不做整转 */
+const ORIENTATION_TOLERANCE = 15
+/** 方向判定时 OCR 使用的预览图最大边长 */
+const ORIENTATION_MAX_SIDE = 1200
 
 const loadImage = (src: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
@@ -140,6 +154,7 @@ interface SkewAnalysis {
   offsetsX: Float32Array
   offsetsY: Float32Array
   count: number
+  width: number
   height: number
   transparent: boolean
 }
@@ -260,37 +275,59 @@ const analyzeSkew = (image: HTMLImageElement): SkewAnalysis => {
     offsetsX,
     offsetsY,
     count,
+    width,
     height,
     transparent: opaquePixels > 0 && transparentPixels / total > 0.01
   }
 }
 
-const projectionScore = (analysis: SkewAnalysis, angleDeg: number): number => {
-  const { offsetsX, offsetsY, count, height } = analysis
-  if (!count) return 0
+const projectionProfile = (
+  analysis: SkewAnalysis,
+  angleDeg: number
+): { bins: Float64Array; used: number } | null => {
+  const { offsetsX, offsetsY, count, width, height } = analysis
+  if (!count) return null
 
   const radians = (angleDeg * Math.PI) / 180
   const sin = Math.sin(radians)
   const cos = Math.cos(radians)
-  const center = height / 2
+  // 投影范围随角度变化，接近 90° 时需按宽度取足够多的分桶
+  const span = Math.ceil(width * Math.abs(sin) + height * Math.abs(cos)) + 1
+  const center = span / 2
 
-  const bins = new Float64Array(height)
+  const bins = new Float64Array(span)
   let used = 0
 
   for (let i = 0; i < count; i += 1) {
     const projected = offsetsX[i] * sin + offsetsY[i] * cos
     const bin = Math.round(projected + center)
-    if (bin < 0 || bin >= height) continue
+    if (bin < 0 || bin >= span) continue
     bins[bin] += 1
     used += 1
   }
 
-  if (!used) return 0
+  return used ? { bins, used } : null
+}
+
+const projectionScore = (analysis: SkewAnalysis, angleDeg: number): number => {
+  const profile = projectionProfile(analysis, angleDeg)
+  if (!profile) return 0
 
   let sum = 0
-  for (let i = 0; i < bins.length; i += 1) sum += bins[i] * bins[i]
+  for (let i = 0; i < profile.bins.length; i += 1) sum += profile.bins[i] * profile.bins[i]
 
-  return sum / (used * used)
+  return sum / (profile.used * profile.used)
+}
+
+/** 归一化投影集中度：墨迹均匀分布时约为 1，文字行方向越明显值越大 */
+const normalizedProjectionScore = (analysis: SkewAnalysis, angleDeg: number): number => {
+  const profile = projectionProfile(analysis, angleDeg)
+  if (!profile) return 0
+
+  let sum = 0
+  for (let i = 0; i < profile.bins.length; i += 1) sum += profile.bins[i] * profile.bins[i]
+
+  return (sum / (profile.used * profile.used)) * profile.bins.length
 }
 
 const searchAngle = (
@@ -387,19 +424,107 @@ const rotateByAngle = (image: HTMLImageElement, angleDeg: number, transparent: b
   return canvas.toDataURL('image/png')
 }
 
-export async function deskewImage(dataUrl: string): Promise<DeskewResult> {
-  const image = await loadImage(dataUrl)
-  const analysis = analyzeSkew(image)
+// 粗扫 -90°~90°，判断文字行是横向（0° 附近）还是纵向（±90° 附近）
+const detectTextLayout = (analysis: SkewAnalysis): 'horizontal' | 'vertical' | 'unknown' => {
+  if (analysis.count < 200) return 'unknown'
+
+  let bestAngle = 0
+  let bestScore = -1
+  const scores: number[] = []
+
+  for (let angle = -90; angle <= 90; angle += ORIENTATION_STEP) {
+    const score = normalizedProjectionScore(analysis, angle)
+    scores.push(score)
+    if (score > bestScore) {
+      bestScore = score
+      bestAngle = angle
+    }
+  }
+
+  // 投影没有明显主方向（如照片、空白页）时不做整页旋转
+  scores.sort((a, b) => a - b)
+  const median = scores[Math.floor(scores.length / 2)]
+  if (bestScore < 1.5 || bestScore < median * 1.15) return 'unknown'
+
+  if (Math.abs(bestAngle) <= ORIENTATION_TOLERANCE) return 'horizontal'
+  if (Math.abs(Math.abs(bestAngle) - 90) <= ORIENTATION_TOLERANCE) return 'vertical'
+  return 'unknown'
+}
+
+const createScaledDataUrl = (image: HTMLImageElement): string => {
+  const scale = Math.min(
+    1,
+    ORIENTATION_MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight)
+  )
+  const width = Math.max(1, Math.round(image.naturalWidth * scale))
+  const height = Math.max(1, Math.round(image.naturalHeight * scale))
+
+  const canvas = createCanvas(width, height)
+  const context = getContext(canvas)
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  // JPEG 无透明通道，先铺白底避免透明区域变黑影响 OCR
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+
+  return canvas.toDataURL('image/jpeg', 0.85)
+}
+
+// 顺时针与逆时针整转都能让文字行恢复水平，需借助 OCR 置信度判断哪个方向才是正立
+const chooseQuarterTurn = async (
+  image: HTMLImageElement,
+  scoreUpright?: (dataUrl: string) => Promise<number>
+): Promise<RotationAngle> => {
+  if (!scoreUpright) return 90
+
+  try {
+    const preview = createScaledDataUrl(image)
+    const [clockwise, counterClockwise] = await Promise.all([
+      rotateImage(preview, 90),
+      rotateImage(preview, -90)
+    ])
+    const [clockwiseScore, counterClockwiseScore] = await Promise.all([
+      scoreUpright(clockwise),
+      scoreUpright(counterClockwise)
+    ])
+
+    return counterClockwiseScore > clockwiseScore ? -90 : 90
+  } catch (error) {
+    console.error('Failed to decide quarter turn:', error)
+    return 90
+  }
+}
+
+export async function deskewImage(
+  dataUrl: string,
+  options: DeskewOptions = {}
+): Promise<DeskewResult> {
+  let image = await loadImage(dataUrl)
+  let analysis = analyzeSkew(image)
+  let baseDataUrl = dataUrl
+  let quarterTurn: RotationAngle | 0 = 0
+
+  // 先处理 ±90° 整页旋转：转正文字行方向后再做精细校正
+  if (detectTextLayout(analysis) === 'vertical') {
+    quarterTurn = await chooseQuarterTurn(image, options.scoreUpright)
+    baseDataUrl = await rotateImage(dataUrl, quarterTurn)
+    image = await loadImage(baseDataUrl)
+    analysis = analyzeSkew(image)
+  }
+
   const angle = detectSkewAngle(analysis)
 
-  if (Math.abs(angle) < MIN_SKEW) {
-    return { angle, changed: false, dataUrl }
+  if (!quarterTurn && Math.abs(angle) < MIN_SKEW) {
+    return { angle, quarterTurn: 0, changed: false, dataUrl }
   }
 
   return {
     angle,
+    quarterTurn,
     changed: true,
-    dataUrl: rotateByAngle(image, angle, analysis.transparent)
+    dataUrl:
+      Math.abs(angle) < MIN_SKEW ? baseDataUrl : rotateByAngle(image, angle, analysis.transparent)
   }
 }
 
@@ -432,11 +557,12 @@ export async function deskewImageByLineAngle(
   const angle = -lineAngle
 
   if (!Number.isFinite(angle) || Math.abs(angle) < MIN_MANUAL_SKEW) {
-    return { angle, changed: false, dataUrl }
+    return { angle, quarterTurn: 0, changed: false, dataUrl }
   }
 
   return {
     angle,
+    quarterTurn: 0,
     changed: true,
     dataUrl: rotateByAngle(image, angle, hasTransparency(image))
   }

@@ -33,6 +33,7 @@ export interface ReadPdfFileResult {
 
 export interface AppSettings {
   tempDir: string
+  defaultBgColor: string
 }
 
 export interface SelectTempDirResult {
@@ -49,6 +50,16 @@ export interface OpenTempDirResult {
 export interface MachineCodeResult {
   ok: boolean
   code?: string
+  message?: string
+}
+
+export interface SetDefaultBgColorPayload {
+  color: string
+}
+
+export interface SetDefaultBgColorResult {
+  ok: boolean
+  settings?: AppSettings
   message?: string
 }
 
@@ -366,6 +377,7 @@ export interface BatInfoRow {
   timeOfCreate: string
   status: number
   sortNo: number
+  bgColor: string
   memo: string
 }
 
@@ -379,6 +391,7 @@ export interface BatInfoSavePayload {
   arcTypeId: string
   status?: number
   sortNo?: number
+  bgColor?: string
   memo?: string
 }
 
@@ -698,6 +711,7 @@ export interface RendererApi {
   selectTempDir: () => Promise<SelectTempDirResult>
   openTempDir: () => Promise<OpenTempDirResult>
   getMachineCode: () => Promise<MachineCodeResult>
+  setDefaultBgColor: (payload: SetDefaultBgColorPayload) => Promise<SetDefaultBgColorResult>
   saveTempImage: (payload: SaveTempImagePayload) => Promise<SaveTempImageResult>
   readTempImage: (payload: ReadTempImagePayload) => Promise<ReadTempImageResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
