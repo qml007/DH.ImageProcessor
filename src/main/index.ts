@@ -9,9 +9,11 @@ import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
 import { writeArchivesExcel } from './excel'
 import { recognizeDataUrl, recognizeImageWithCache, shutdownOcrWorker } from './ocr'
+import { testAiConnection } from './ai/testConnection'
 import {
   closeDatabase,
   countArcImageByArcIds,
+  createAiSettingInfo,
   createArcFieldInfo,
   createArcImageBatch,
   createArcImageHistory,
@@ -21,6 +23,7 @@ import {
   createBatInfoWithSnapshot,
   DEFAULT_BG_COLOR,
   DEFAULT_BG_COLOR_CONFIG_KEY,
+  deleteAiSettingInfo,
   deleteArcFieldInfo,
   deleteArcImage,
   deleteArcInfo,
@@ -28,10 +31,12 @@ import {
   deleteBatArcFieldInfo,
   deleteBatInfo,
   deleteConfig,
+  getAiSettingInfo,
   getArcType,
   getBatInfo,
   getConfig,
   initializeDatabase,
+  listAiSettingInfo,
   listArcFieldValue,
   listArcFieldInfo,
   listArcImage,
@@ -41,16 +46,20 @@ import {
   listBatArcFieldInfo,
   listBatInfo,
   listConfig,
+  maskApiKey,
   normalizeBgColor,
   setConfig,
+  setDefaultAiSettingInfo,
   truncateArcImageHistory,
+  updateAiSettingInfo,
   updateArcFieldInfo,
   updateArcImage,
   updateArcInfo,
   updateArcType,
   updateBatArcFieldInfo,
   updateBatInfoWithSnapshot,
-  upsertArcFieldValue
+  upsertArcFieldValue,
+  type AiSettingInfoRow
 } from './db/index'
 
 const ASSET_SCHEME = 'app-asset'
@@ -123,6 +132,23 @@ interface PdfSourceFile {
 interface AppSettings {
   tempDir: string
   defaultBgColor: string
+}
+
+/** 返回给渲染进程的 AI 服务视图，不含完整密钥 */
+interface AiSettingView {
+  aiId: string
+  name: string
+  protocol: string
+  baseUrl: string
+  model: string
+  supportsVision: number
+  isDefault: number
+  advancedParams: AiSettingInfoRow['advancedParams']
+  sortNo: number
+  timeOfCreate: string
+  timeOfUpdate: string
+  apiKeyMasked: string
+  hasApiKey: number
 }
 
 interface PdfExportArchive {
@@ -493,6 +519,140 @@ app.whenReady().then(() => {
       return dbError(error)
     }
   })
+
+  // ---------- AI 服务配置 AISettingInfo ----------
+  // 完整密钥只留在主进程，渲染进程只拿到掩码
+  const toAiSettingView = (row: AiSettingInfoRow): AiSettingView => ({
+    aiId: row.aiId,
+    name: row.name,
+    protocol: row.protocol,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    supportsVision: row.supportsVision,
+    isDefault: row.isDefault,
+    advancedParams: row.advancedParams,
+    sortNo: row.sortNo,
+    timeOfCreate: row.timeOfCreate,
+    timeOfUpdate: row.timeOfUpdate,
+    apiKeyMasked: maskApiKey(row.apiKey),
+    hasApiKey: row.apiKey ? 1 : 0
+  })
+
+  type AiAdvancedParamPayload = {
+    key: string
+    type: 'text' | 'number' | 'boolean'
+    value: string
+  }
+
+  ipcMain.handle('aisetting:list', () => {
+    try {
+      return { ok: true, items: listAiSettingInfo().map(toAiSettingView) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'aisetting:create',
+    (
+      _event,
+      payload: {
+        name: string
+        protocol: string
+        baseUrl: string
+        apiKey?: string
+        model: string
+        supportsVision: number
+        advancedParams?: AiAdvancedParamPayload[]
+        sortNo?: number
+      }
+    ) => {
+      try {
+        return { ok: true, item: toAiSettingView(createAiSettingInfo(payload)) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'aisetting:update',
+    (
+      _event,
+      payload: {
+        aiId: string
+        protocol: string
+        baseUrl: string
+        apiKey?: string
+        model: string
+        supportsVision: number
+        advancedParams?: AiAdvancedParamPayload[]
+        sortNo?: number
+      }
+    ) => {
+      try {
+        const { aiId, ...input } = payload
+        const item = updateAiSettingInfo(aiId, input)
+        if (!item) return { ok: false, message: '该 AI 服务不存在或已被删除' }
+        return { ok: true, item: toAiSettingView(item) }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('aisetting:delete', (_event, payload: { aiId: string }) => {
+    try {
+      return { ok: true, removed: deleteAiSettingInfo(payload.aiId) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  ipcMain.handle('aisetting:set-default', (_event, payload: { aiId: string }) => {
+    try {
+      const item = setDefaultAiSettingInfo(payload.aiId)
+      if (!item) return { ok: false, message: '该 AI 服务不存在或已被删除' }
+      return { ok: true, item: toAiSettingView(item) }
+    } catch (error) {
+      return dbError(error)
+    }
+  })
+
+  // 测试连接：密钥留空时沿用数据库中已保存的密钥
+  ipcMain.handle(
+    'aisetting:test',
+    async (
+      _event,
+      payload: {
+        aiId?: string
+        baseUrl: string
+        apiKey?: string
+        model: string
+        supportsVision: number
+        advancedParams?: AiAdvancedParamPayload[]
+      }
+    ) => {
+      try {
+        const stored = payload.aiId ? getAiSettingInfo(payload.aiId) : null
+        return await testAiConnection({
+          baseUrl: payload.baseUrl,
+          apiKey: (payload.apiKey ?? '').trim() || stored?.apiKey || '',
+          model: payload.model,
+          supportsVision: payload.supportsVision,
+          advancedParams: payload.advancedParams ?? []
+        })
+      } catch (error) {
+        console.error('AI connection test failed:', error)
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : '测试连接失败',
+          latencyMs: 0,
+          vision: 'not-tested'
+        }
+      }
+    }
+  )
 
   // arcType 档案类型 CRUD
   ipcMain.handle('arcType:list', (_event, payload?: { includeDisabled?: boolean }) => {

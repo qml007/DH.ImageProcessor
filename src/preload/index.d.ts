@@ -247,6 +247,87 @@ export interface ConfigDeleteResult {
   message?: string
 }
 
+// ---------- 设置 · AI 服务 AISettingInfo ----------
+
+export type AiAdvancedParamType = 'text' | 'number' | 'boolean'
+
+export interface AiAdvancedParam {
+  key: string
+  type: AiAdvancedParamType
+  value: string
+}
+
+export interface AiSettingInfoRow {
+  aiId: string
+  name: string
+  protocol: string
+  baseUrl: string
+  model: string
+  supportsVision: number
+  isDefault: number
+  advancedParams: AiAdvancedParam[]
+  sortNo: number
+  timeOfCreate: string
+  timeOfUpdate: string
+  /** 掩码后的密钥，完整密钥不返回渲染进程 */
+  apiKeyMasked: string
+  hasApiKey: number
+}
+
+export interface AiSettingInfoListResult {
+  ok: boolean
+  items?: AiSettingInfoRow[]
+  message?: string
+}
+
+export interface AiSettingInfoSavePayload {
+  name: string
+  protocol: string
+  baseUrl: string
+  apiKey?: string
+  model: string
+  supportsVision: number
+  advancedParams: AiAdvancedParam[]
+  sortNo?: number
+}
+
+export interface AiSettingInfoUpdatePayload extends Omit<AiSettingInfoSavePayload, 'name'> {
+  aiId: string
+}
+
+export interface AiSettingInfoSaveResult {
+  ok: boolean
+  item?: AiSettingInfoRow
+  message?: string
+}
+
+export interface AiSettingInfoDeletePayload {
+  aiId: string
+}
+
+export interface AiSettingInfoDeleteResult {
+  ok: boolean
+  removed?: number
+  message?: string
+}
+
+export interface AiSettingInfoTestPayload {
+  aiId?: string
+  baseUrl: string
+  apiKey?: string
+  model: string
+  supportsVision: number
+  advancedParams: AiAdvancedParam[]
+}
+
+export interface AiSettingInfoTestResult {
+  ok: boolean
+  message: string
+  latencyMs: number
+  model?: string
+  vision: 'supported' | 'unsupported' | 'not-tested'
+}
+
 // ---------- arcType 档案类型 ----------
 
 export interface ArcTypeRow {
@@ -725,6 +806,16 @@ export interface RendererApi {
   getConfig: (payload: ConfigGetPayload) => Promise<ConfigGetResult>
   setConfig: (payload: ConfigSetPayload) => Promise<ConfigSetResult>
   deleteConfig: (payload: ConfigDeletePayload) => Promise<ConfigDeleteResult>
+  listAiSettingInfo: () => Promise<AiSettingInfoListResult>
+  createAiSettingInfo: (payload: AiSettingInfoSavePayload) => Promise<AiSettingInfoSaveResult>
+  updateAiSettingInfo: (
+    payload: AiSettingInfoUpdatePayload
+  ) => Promise<AiSettingInfoSaveResult>
+  deleteAiSettingInfo: (
+    payload: AiSettingInfoDeletePayload
+  ) => Promise<AiSettingInfoDeleteResult>
+  setDefaultAiSettingInfo: (payload: AiSettingInfoDeletePayload) => Promise<AiSettingInfoSaveResult>
+  testAiSettingInfo: (payload: AiSettingInfoTestPayload) => Promise<AiSettingInfoTestResult>
   listArcType: (payload?: ArcTypeListPayload) => Promise<ArcTypeListResult>
   getArcType: (payload: ArcTypeGetPayload) => Promise<ArcTypeGetResult>
   createArcType: (payload: ArcTypeSavePayload) => Promise<ArcTypeCreateResult>

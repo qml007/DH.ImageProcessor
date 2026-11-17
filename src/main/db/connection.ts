@@ -147,6 +147,23 @@ const createSchema = (db: Database.Database): void => {
     CREATE INDEX IF NOT EXISTS idx_arcFieldValue_arcId ON arcFieldValue(arcId);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_arcFieldValue_arc_field
       ON arcFieldValue(arcId, batFieldId);
+
+    CREATE TABLE IF NOT EXISTS AISettingInfo (
+      aiId TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      protocol TEXT NOT NULL DEFAULT 'openai',
+      baseUrl TEXT NOT NULL DEFAULT '',
+      apiKey TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '',
+      supportsVision INTEGER NOT NULL DEFAULT 0,
+      isDefault INTEGER NOT NULL DEFAULT 0,
+      advancedJson TEXT NOT NULL DEFAULT '[]',
+      sortNo INTEGER NOT NULL DEFAULT 0,
+      timeOfCreate TEXT NOT NULL,
+      timeOfUpdate TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_AISettingInfo_name ON AISettingInfo(name);
   `)
 }
 

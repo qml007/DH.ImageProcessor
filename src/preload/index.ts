@@ -31,6 +31,19 @@ const api = {
   deleteConfig: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('db:config-delete', payload),
 
+  // AISettingInfo AI 服务配置
+  listAiSettingInfo: (): Promise<unknown> => ipcRenderer.invoke('aisetting:list'),
+  createAiSettingInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('aisetting:create', payload),
+  updateAiSettingInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('aisetting:update', payload),
+  deleteAiSettingInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('aisetting:delete', payload),
+  setDefaultAiSettingInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('aisetting:set-default', payload),
+  testAiSettingInfo: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('aisetting:test', payload),
+
   // arcType 档案类型 CRUD
   listArcType: (payload?: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:list', payload),
   getArcType: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:get', payload),

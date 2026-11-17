@@ -46,6 +46,12 @@ const router = createRouter({
           meta: { title: '档案类型' }
         },
         {
+          path: 'ai-services',
+          name: 'ai-services',
+          component: () => import('../views/AIServiceView.vue'),
+          meta: { title: 'AI服务' }
+        },
+        {
           path: 'archives-types/:typeId/fields',
           name: 'archives-type-fields',
           component: () => import('../views/ArchivesFieldsView.vue'),
