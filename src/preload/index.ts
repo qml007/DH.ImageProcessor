@@ -44,6 +44,20 @@ const api = {
   testAiSettingInfo: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('aisetting:test', payload),
 
+  // AI 对话（流式）
+  aiChatStart: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('ai:chat-start', payload),
+  aiChatAbort: (payload: unknown): void => ipcRenderer.send('ai:chat-abort', payload),
+  saveAiChatImage: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('ai:chat-save-image', payload),
+  onAiChatEvent: (callback: (event: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+    ipcRenderer.on('ai:chat-event', listener)
+    return () => {
+      ipcRenderer.removeListener('ai:chat-event', listener)
+    }
+  },
+
   // arcType 档案类型 CRUD
   listArcType: (payload?: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:list', payload),
   getArcType: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('arcType:get', payload),

@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, net, protocol } from 'electron'
 import { execFile } from 'child_process'
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
@@ -10,6 +10,7 @@ import { buildPdfFromDataUrls } from './pdf'
 import { writeArchivesExcel } from './excel'
 import { recognizeDataUrl, recognizeImageWithCache, shutdownOcrWorker } from './ocr'
 import { testAiConnection } from './ai/testConnection'
+import { streamChatCompletion, type AiChatMessageInput } from './ai/chat'
 import {
   closeDatabase,
   countArcImageByArcIds,
@@ -653,6 +654,79 @@ app.whenReady().then(() => {
       }
     }
   )
+
+  // ---------- AI 对话（流式，不落库） ----------
+  const aiChatControllers = new Map<string, AbortController>()
+
+  ipcMain.handle(
+    'ai:chat-start',
+    (
+      event,
+      payload: { requestId: string; aiId: string; messages: AiChatMessageInput[] }
+    ): { ok: boolean; message?: string } => {
+      const setting = getAiSettingInfo(payload.aiId)
+      if (!setting) return { ok: false, message: 'AI 服务不存在或已被删除' }
+      if (!setting.baseUrl.trim() || !setting.model.trim()) {
+        return { ok: false, message: '该 AI 服务缺少 Base URL 或模型' }
+      }
+
+      const { requestId } = payload
+      const sender = event.sender
+      const controller = new AbortController()
+      aiChatControllers.set(requestId, controller)
+
+      const send = (
+        type: 'delta' | 'done' | 'error',
+        data: { delta?: string; message?: string; aborted?: boolean } = {}
+      ): void => {
+        if (!sender.isDestroyed()) sender.send('ai:chat-event', { requestId, type, ...data })
+      }
+
+      void (async (): Promise<void> => {
+        try {
+          await streamChatCompletion(setting, payload.messages ?? [], controller.signal, (delta) => {
+            send('delta', { delta })
+          })
+          send('done', {})
+        } catch (error) {
+          if (controller.signal.aborted) {
+            send('done', { aborted: true })
+          } else {
+            console.error('AI chat failed:', error)
+            send('error', { message: error instanceof Error ? error.message : 'AI 响应失败' })
+          }
+        } finally {
+          aiChatControllers.delete(requestId)
+        }
+      })()
+
+      // 立即返回，正文通过 ai:chat-event 逐段推送
+      return { ok: true }
+    }
+  )
+
+  ipcMain.on('ai:chat-abort', (_event, payload: { requestId: string }) => {
+    aiChatControllers.get(payload.requestId)?.abort()
+  })
+
+  // 对话图片只临时写入临时文件夹，关闭页面即丢弃，不入库
+  ipcMain.handle('ai:chat-save-image', async (_event, payload: { dataUrl: string }) => {
+    try {
+      const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(payload.dataUrl)
+      if (!match) return { ok: false, message: '图片数据格式无效' }
+
+      const ext = MIME_TO_EXT[match[1]] ?? 'png'
+      const tempDir = await ensureTempDir()
+      await mkdir(join(tempDir, 'ai-chat'), { recursive: true })
+
+      const fileName = `${Date.now()}-${randomUUID()}.${ext}`
+      await writeFile(join(tempDir, 'ai-chat', fileName), Buffer.from(match[2], 'base64'))
+      return { ok: true, relPath: `ai-chat/${fileName}` }
+    } catch (error) {
+      console.error('Failed to save AI chat image:', error)
+      return { ok: false, message: '写入临时文件夹失败' }
+    }
+  })
 
   // arcType 档案类型 CRUD
   ipcMain.handle('arcType:list', (_event, payload?: { includeDisabled?: boolean }) => {

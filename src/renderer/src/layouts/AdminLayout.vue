@@ -58,6 +58,11 @@ const menuGroups: MenuGroup[] = [
           'M9 7h7',
           'M9 11h7'
         ]
+      },
+      {
+        path: '/ai-chat',
+        label: 'AI对话',
+        icon: ['M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-7.2A8.5 8.5 0 1 1 21 11.5z', 'M9 11h.01', 'M12.5 11h.01', 'M16 11h.01']
       }
     ]
   },

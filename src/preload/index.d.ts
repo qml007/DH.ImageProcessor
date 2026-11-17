@@ -328,6 +328,47 @@ export interface AiSettingInfoTestResult {
   vision: 'supported' | 'unsupported' | 'not-tested'
 }
 
+// ---------- AI 对话 ----------
+
+export type AiChatRole = 'user' | 'assistant' | 'system'
+
+export interface AiChatMessage {
+  role: AiChatRole
+  content: string
+  /** data:image/...;base64,... 形式的图片 */
+  images?: string[]
+}
+
+export interface AiChatStartPayload {
+  requestId: string
+  aiId: string
+  messages: AiChatMessage[]
+}
+
+export interface AiChatStartResult {
+  ok: boolean
+  message?: string
+}
+
+export interface AiChatEvent {
+  requestId: string
+  type: 'delta' | 'done' | 'error'
+  delta?: string
+  message?: string
+  aborted?: boolean
+}
+
+export interface AiChatImagePayload {
+  dataUrl: string
+}
+
+export interface AiChatImageResult {
+  ok: boolean
+  /** 相对于临时文件夹的路径，如 ai-chat/xxx.png */
+  relPath?: string
+  message?: string
+}
+
 // ---------- arcType 档案类型 ----------
 
 export interface ArcTypeRow {
@@ -816,6 +857,10 @@ export interface RendererApi {
   ) => Promise<AiSettingInfoDeleteResult>
   setDefaultAiSettingInfo: (payload: AiSettingInfoDeletePayload) => Promise<AiSettingInfoSaveResult>
   testAiSettingInfo: (payload: AiSettingInfoTestPayload) => Promise<AiSettingInfoTestResult>
+  aiChatStart: (payload: AiChatStartPayload) => Promise<AiChatStartResult>
+  aiChatAbort: (payload: { requestId: string }) => void
+  saveAiChatImage: (payload: AiChatImagePayload) => Promise<AiChatImageResult>
+  onAiChatEvent: (callback: (event: AiChatEvent) => void) => () => void
   listArcType: (payload?: ArcTypeListPayload) => Promise<ArcTypeListResult>
   getArcType: (payload: ArcTypeGetPayload) => Promise<ArcTypeGetResult>
   createArcType: (payload: ArcTypeSavePayload) => Promise<ArcTypeCreateResult>

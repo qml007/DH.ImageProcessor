@@ -23,14 +23,14 @@ export interface AiConnectionTestResult {
   vision: 'supported' | 'unsupported' | 'not-tested'
 }
 
-const chatCompletionsUrl = (baseUrl: string): string => {
+export const chatCompletionsUrl = (baseUrl: string): string => {
   const base = baseUrl.trim().replace(/\/+$/, '')
   if (!base) throw new Error('Base URL 不能为空')
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`
 }
 
 /** 高级参数按类型转换后合并进请求体，model / messages 不允许覆盖 */
-const buildAdvancedBody = (params: AiAdvancedParam[]): Record<string, unknown> => {
+export const buildAdvancedBody = (params: AiAdvancedParam[]): Record<string, unknown> => {
   const body: Record<string, unknown> = {}
 
   for (const param of params) {

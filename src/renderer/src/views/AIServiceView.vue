@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { values } from 'pdf-lib'
 import { onMounted, reactive, ref } from 'vue'
 
 type AdvancedParamType = 'text' | 'number' | 'boolean'

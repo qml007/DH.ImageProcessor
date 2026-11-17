@@ -64,6 +64,12 @@ const router = createRouter({
           meta: { title: '批次管理' }
         },
         {
+          path: 'ai-chat',
+          name: 'ai-chat',
+          component: () => import('../views/AIChatView.vue'),
+          meta: { title: 'AI对话' }
+        },
+        {
           path: 'batches/:batId/fields',
           name: 'batch-fields',
           component: () => import('../views/BatFieldsView.vue'),
