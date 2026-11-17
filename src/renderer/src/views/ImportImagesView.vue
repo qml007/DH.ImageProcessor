@@ -28,6 +28,7 @@ const pdfProgress = ref('')
 interface BatchOption {
   batId: string
   batCode: string
+  arcTypeId: string
   arcTypeName: string
   status: number
 }
@@ -39,21 +40,25 @@ const loadBatches = async (): Promise<void> => {
   try {
     const result = await window.api.listBatInfo()
     if (result.ok) {
-      batches.value = (result.items ?? []).map((item) => ({
-        batId: item.batId,
-        batCode: item.batCode,
-        arcTypeName: item.arcTypeName,
-        status: item.status
-      }))
+      // 图像处理只针对进行中的批次，已完成的批次不再列出
+      batches.value = (result.items ?? [])
+        .filter((item) => item.status === 0)
+        .map((item) => ({
+          batId: item.batId,
+          batCode: item.batCode,
+          arcTypeId: item.arcTypeId,
+          arcTypeName: item.arcTypeName,
+          status: item.status
+        }))
     }
 
-    if (!batchId.value && batches.value.length) {
-      batchId.value = batches.value[0].batId
+    if (!batches.value.some((item) => item.batId === batchId.value)) {
+      batchId.value = batches.value[0]?.batId ?? ''
     }
 
-    if (batchId.value && batchId.value !== imageStore.batId) {
+    if (batchId.value !== imageStore.batId) {
       await imageStore.setBatch(batchId.value)
-    } else {
+    } else if (batchId.value) {
       await imageStore.restore()
     }
   } catch (error) {
@@ -545,6 +550,43 @@ const clearAll = async (): Promise<void> => {
   resetMark()
 }
 
+// 将当前批次由“进行中”标记为“已完成”，完成后不再出现在批次下拉列表
+const completing = ref(false)
+
+const completeBatch = async (): Promise<void> => {
+  if (completing.value || !batchId.value) return
+
+  const current = batches.value.find((item) => item.batId === batchId.value)
+  if (!current) return
+
+  const confirmed = confirm(
+    `确定将批次「${current.batCode}」标记为已完成？完成后该批次将从批次下拉列表中移除。`
+  )
+  if (!confirmed) return
+
+  completing.value = true
+  try {
+    const result = await window.api.updateBatInfo({
+      batId: current.batId,
+      arcTypeId: current.arcTypeId,
+      status: 1
+    })
+    if (!result.ok) {
+      alert(result.message ?? '更新批次状态失败')
+      return
+    }
+
+    await loadBatches()
+    clearSelection()
+    resetMark()
+    flashMessage(`批次「${current.batCode}」已完成`)
+  } catch (error) {
+    alert(error instanceof Error ? error.message : '未知错误')
+  } finally {
+    completing.value = false
+  }
+}
+
 const isSelected = (id: string): boolean => selectedIds.value.includes(id)
 
 const toggleSelect = (id: string): void => {
@@ -832,6 +874,28 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
           </button>
         </div>
         <div class="action-group">
+          <div class="action-subgroup">
+            <button
+              class="btn btn-icon"
+              type="button"
+              title="完成当前批次（标记为已完成）"
+              aria-label="完成当前批次"
+              :disabled="completing || !batchId"
+              @click="completeBatch"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+              </svg>
+            </button>
+          </div>
           <div class="action-subgroup">
             <button
               class="btn btn-icon"
