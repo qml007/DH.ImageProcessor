@@ -138,10 +138,11 @@ const send = async (): Promise<void> => {
   messages.value.push({ role: 'assistant', content: '' })
   scrollToBottom()
 
+  // 注意：这里必须展开成普通数组，响应式 Proxy 无法通过 IPC 的结构化克隆
   const payloadMessages = messages.value.slice(0, -1).map((message) => ({
     role: message.role,
     content: message.content,
-    images: visionEnabled.value && message.images?.length ? message.images : undefined
+    images: visionEnabled.value && message.images?.length ? [...message.images] : undefined
   }))
 
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -370,6 +371,16 @@ onUnmounted(() => {
               @click="send"
             >
               {{ streaming ? '生成中…' : '发送' }}
+            </button>
+
+            <button
+              v-if="streaming"
+              class="btn stop-btn"
+              type="button"
+              title="停止生成"
+              @click="abortStream"
+            >
+              停止
             </button>
           </div>
 
@@ -666,6 +677,15 @@ onUnmounted(() => {
 
 .send-btn {
   flex-shrink: 0;
+}
+
+.stop-btn {
+  flex-shrink: 0;
+}
+
+.stop-btn:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .send-btn:disabled,
