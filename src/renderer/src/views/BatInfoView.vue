@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -27,6 +27,21 @@ const arcTypeOptions = ref<ArcTypeOption[]>([])
 const loading = ref(false)
 const error = ref('')
 const defaultBgColor = ref('#FFFFFF')
+
+// 批次列表分页：默认每页 10 条，可自行调整
+const pageSizeOptions = [10, 20, 50, 100]
+const page = ref(1)
+const pageSize = ref(10)
+const totalPages = computed(() => Math.max(1, Math.ceil(items.value.length / pageSize.value)))
+const currentPage = computed(() => Math.min(page.value, totalPages.value))
+const pagedItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return items.value.slice(start, start + pageSize.value)
+})
+
+watch(pageSize, () => {
+  page.value = 1
+})
 
 const modalVisible = ref(false)
 const editing = ref<BatInfoRow | null>(null)
@@ -177,76 +192,140 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
     <section class="card">
       <div v-if="loading" class="loading-state">加载中…</div>
       <div v-else-if="error" class="empty-state">{{ error }}</div>
-      <div v-else class="table-wrapper">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>批次编号</th>
-              <th>档案类型</th>
-              <th>建立时间</th>
-              <th>状态</th>
-              <th>排序号</th>
-              <th>底色</th>
-              <th>备注</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in items" :key="row.batId">
-              <td>
-                <code class="code-tag">{{ row.batCode }}</code>
-              </td>
-              <td>
-                <strong>{{ row.arcTypeName }}</strong>
-              </td>
-              <td class="time-cell">{{ formatTime(row.timeOfCreate) }}</td>
-              <td>
-                <span class="tag" :class="row.status === 1 ? 'tag-success' : 'tag-neutral'">
-                  {{ row.status === 1 ? '已完成' : '进行中' }}
-                </span>
-              </td>
-              <td class="mono-cell">{{ row.sortNo }}</td>
-              <td class="color-cell">
-                <span
-                  class="color-swatch"
-                  :style="{ backgroundColor: row.bgColor || '#FFFFFF' }"
-                ></span>
-                <code class="color-code">{{ row.bgColor || '#FFFFFF' }}</code>
-              </td>
-              <td class="memo-cell">{{ row.memo || '—' }}</td>
-              <td class="col-actions">
-                <button
-                  class="icon-btn-inline primary"
-                  type="button"
-                  title="进入批次"
-                  @click="router.push(`/batches/${row.batId}/fields`)"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                  </svg>
-                </button>
-                <button class="icon-btn-inline" type="button" title="编辑" @click="openEdit(row)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
-                  </svg>
-                </button>
-                <button class="icon-btn-inline danger" type="button" title="删除" @click="removeItem(row)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 6h18" />
-                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                    <path d="M10 11v6" />
-                    <path d="M14 11v6" />
-                  </svg>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="!items.length" class="empty-state">暂无批次，点击右上角「新增批次」开始。</p>
-      </div>
+      <template v-else>
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>批次编号</th>
+                <th>档案类型</th>
+                <th>建立时间</th>
+                <th>状态</th>
+                <th>排序号</th>
+                <th>底色</th>
+                <th>备注</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in pagedItems" :key="row.batId">
+                <td>
+                  <code class="code-tag">{{ row.batCode }}</code>
+                </td>
+                <td>
+                  <strong>{{ row.arcTypeName }}</strong>
+                </td>
+                <td class="time-cell">{{ formatTime(row.timeOfCreate) }}</td>
+                <td>
+                  <span class="tag" :class="row.status === 1 ? 'tag-success' : 'tag-neutral'">
+                    {{ row.status === 1 ? '已完成' : '进行中' }}
+                  </span>
+                </td>
+                <td class="mono-cell">{{ row.sortNo }}</td>
+                <td class="color-cell">
+                  <span
+                    class="color-swatch"
+                    :style="{ backgroundColor: row.bgColor || '#FFFFFF' }"
+                  ></span>
+                  <code class="color-code">{{ row.bgColor || '#FFFFFF' }}</code>
+                </td>
+                <td class="memo-cell">{{ row.memo || '—' }}</td>
+                <td class="col-actions">
+                  <button
+                    class="icon-btn-inline primary"
+                    type="button"
+                    title="进入批次"
+                    @click="router.push(`/batches/${row.batId}/fields`)"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M5 12h14" />
+                      <path d="m12 5 7 7-7 7" />
+                    </svg>
+                  </button>
+                  <button class="icon-btn-inline" type="button" title="编辑" @click="openEdit(row)">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+                    </svg>
+                  </button>
+                  <button
+                    class="icon-btn-inline danger"
+                    type="button"
+                    title="删除"
+                    @click="removeItem(row)"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="!items.length" class="empty-state">暂无批次，点击右上角「新增批次」开始。</p>
+        </div>
+
+        <div v-if="items.length" class="pagination">
+          <span>共 {{ items.length }} 条记录</span>
+          <div class="pagination-right">
+            <label class="page-size">
+              每页
+              <select v-model.number="pageSize" class="input page-size-select">
+                <option v-for="size in pageSizeOptions" :key="size" :value="size">
+                  {{ size }}
+                </option>
+              </select>
+              条
+            </label>
+            <div class="pagination-pages">
+              <button type="button" :disabled="currentPage === 1" @click="page = currentPage - 1">
+                上一页
+              </button>
+              <button
+                v-for="p in totalPages"
+                :key="p"
+                type="button"
+                :class="{ active: p === currentPage }"
+                @click="page = p"
+              >
+                {{ p }}
+              </button>
+              <button
+                type="button"
+                :disabled="currentPage === totalPages"
+                @click="page = currentPage + 1"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
     </section>
 
     <div v-if="modalVisible" class="modal-mask" @click.self="modalVisible = false">
@@ -313,7 +392,14 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
         </div>
         <div class="modal-footer">
           <button class="icon-btn-lg" type="button" title="取消" @click="modalVisible = false">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M18 6 6 18" />
               <path d="m6 6 12 12" />
             </svg>
@@ -326,7 +412,14 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
             :disabled="submitting"
             @click="submitForm"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
@@ -344,7 +437,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   background-color: var(--color-surface-soft);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--color-primary);
 }
@@ -356,7 +449,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
 }
 
 .mono-cell {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   text-align: center;
   color: var(--color-text-2);
 }
@@ -384,7 +477,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
 }
 
 .color-code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--color-text-2);
 }
@@ -407,7 +500,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
 }
 
 .color-value {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--color-text-2);
 }
@@ -430,6 +523,74 @@ textarea.input {
   color: var(--color-text-3);
 }
 
+.pagination-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+
+.page-size-select {
+  height: 30px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(15, 23, 42, 0.45);
+}
+
+.modal {
+  width: 440px;
+  max-width: calc(100% - 40px);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.35);
+}
+
+.modal .card-body {
+  padding: 20px;
+}
+
+.modal-gap {
+  margin-top: 16px;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-3);
+}
+
+.close-btn:hover {
+  background-color: var(--color-surface-soft);
+  color: var(--color-text-1);
+}
+
+.form-error {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -448,7 +609,9 @@ textarea.input {
   margin: 0 2px;
   border-radius: var(--radius-sm);
   color: var(--color-text-2);
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .icon-btn-inline:hover {
@@ -487,7 +650,10 @@ textarea.input {
   background-color: var(--color-surface);
   font-size: 13px;
   color: var(--color-text-2);
-  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .icon-btn-lg:hover {
