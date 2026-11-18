@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch
+} from 'vue'
 import { useRouter } from 'vue-router'
 import { imageStore, type Archive, type AddImageItem, type EditableImage } from '../stores/imageStore'
 import type {
@@ -689,6 +698,15 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   unsubscribeProgress = window.api.onPdfExportProgress(applyExportProgress)
   void loadBatches()
+})
+
+// 作为标签页被缓存时：失活解绑快捷键，重新激活后恢复
+onDeactivated(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+onActivated(() => {
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {

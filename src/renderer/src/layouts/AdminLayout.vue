@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, ref, watch } from 'vue'
+import {
+  RouterLink,
+  RouterView,
+  useRoute,
+  useRouter,
+  type RouteLocationNormalizedLoaded
+} from 'vue-router'
 
 interface MenuItem {
   path: string
@@ -107,6 +113,92 @@ const bottomMenus: MenuItem[] = [
     ]
   }
 ]
+
+interface TabItem {
+  path: string
+  title: string
+  /** 视图组件名，KeepAlive 的 include 需要按组件名匹配 */
+  component: string
+}
+
+/** 路由名 → 视图组件名 */
+const routeViewNames: Record<string, string> = {
+  dashboard: 'DashboardView',
+  users: 'UsersView',
+  images: 'ImportImagesView',
+  'image-edit': 'ImageEditView',
+  settings: 'SettingsView',
+  'archives-types': 'ArchivesTypeView',
+  'archives-type-fields': 'ArchivesFieldsView',
+  'ai-services': 'AIServiceView',
+  batches: 'BatInfoView',
+  'batch-fields': 'BatFieldsView',
+  'ai-chat': 'AIChatView'
+}
+
+const tabs = ref<TabItem[]>([])
+const tabBarRef = ref<HTMLElement | null>(null)
+
+const resolveTabTitle = (target: RouteLocationNormalizedLoaded): string => {
+  const base = (target.meta.title as string) ?? '页面'
+  const param = target.params.id ?? target.params.typeId ?? target.params.batId
+  if (!param) return base
+
+  const text = Array.isArray(param) ? param.join('/') : param
+  return `${base} · ${text.length > 10 ? `${text.slice(0, 6)}…` : text}`
+}
+
+const openTab = (target: RouteLocationNormalizedLoaded): void => {
+  if (!target.name || tabs.value.some((tab) => tab.path === target.path)) return
+
+  tabs.value.push({
+    path: target.path,
+    title: resolveTabTitle(target),
+    component: routeViewNames[String(target.name)] ?? ''
+  })
+}
+
+const cachedViews = computed(() =>
+  Array.from(new Set(tabs.value.map((tab) => tab.component).filter(Boolean)))
+)
+
+const activateTab = (target: TabItem): void => {
+  if (route.path !== target.path) void router.push(target.path)
+}
+
+const closeTab = (target: TabItem): void => {
+  const index = tabs.value.findIndex((tab) => tab.path === target.path)
+  if (index === -1) return
+
+  tabs.value.splice(index, 1)
+  if (route.path !== target.path) return
+
+  // 关闭的是当前页：切换到相邻标签；全部关闭时回到工作台
+  const neighbor = tabs.value[index] ?? tabs.value[index - 1]
+  if (neighbor) {
+    void router.push(neighbor.path)
+  } else if (route.path === '/dashboard') {
+    openTab(route)
+  } else {
+    void router.push('/dashboard')
+  }
+}
+
+const scrollActiveTabIntoView = async (): Promise<void> => {
+  await nextTick()
+  tabBarRef.value
+    ?.querySelector<HTMLElement>('.tab-item.active')
+    ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+
+watch(
+  () => route.path,
+  () => {
+    openTab(route)
+    void scrollActiveTabIntoView()
+  },
+  { immediate: true }
+)
 
 const currentTitle = computed(() => (route.meta.title as string) ?? '工作台')
 
@@ -239,8 +331,41 @@ const handleSearch = (): void => {
         </div>
       </header>
 
+      <div ref="tabBarRef" class="tabbar">
+        <div
+          v-for="tab in tabs"
+          :key="tab.path"
+          class="tab-item"
+          :class="{ active: route.path === tab.path }"
+          @click="activateTab(tab)"
+        >
+          <span class="tab-label" :title="tab.title">{{ tab.title }}</span>
+          <button
+            class="tab-close"
+            type="button"
+            :title="`关闭 ${tab.title}`"
+            @click.stop="closeTab(tab)"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12" />
+              <path d="M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <main class="content">
-        <RouterView />
+        <RouterView v-slot="{ Component, route: activeRoute }">
+          <KeepAlive :include="cachedViews" :max="12">
+            <component :is="Component" :key="activeRoute.path" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </div>
   </div>
@@ -542,6 +667,94 @@ const handleSearch = (): void => {
 .user-info span {
   font-size: 11px;
   color: var(--color-text-3);
+}
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 42px;
+  flex-shrink: 0;
+  padding: 8px 16px 0;
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tab-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 220px;
+  height: 33px;
+  padding: 0 28px 0 14px;
+  border: 1px solid var(--color-border);
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+  background-color: var(--color-surface-soft);
+  font-size: 13px;
+  color: var(--color-text-2);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.tab-item:hover {
+  color: var(--color-primary);
+}
+
+.tab-item.active {
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 500;
+  box-shadow: inset 0 2px 0 var(--color-primary);
+}
+
+.tab-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--color-text-3);
+  opacity: 0.55;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.tab-close svg {
+  width: 9px;
+  height: 9px;
+}
+
+.tab-close:hover {
+  background-color: var(--color-surface-soft);
+  color: var(--color-danger);
+  opacity: 1;
+}
+
+.tab-item.active .tab-close {
+  opacity: 0.85;
 }
 
 .content {

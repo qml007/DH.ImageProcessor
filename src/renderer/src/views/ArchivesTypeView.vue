@@ -397,6 +397,54 @@ const removeItem = async (row: ArcTypeRow): Promise<void> => {
   color: var(--color-text-3);
 }
 
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(15, 23, 42, 0.45);
+}
+
+.modal {
+  width: 440px;
+  max-width: calc(100% - 40px);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.35);
+}
+
+.modal .card-body {
+  padding: 20px;
+}
+
+.modal-gap {
+  margin-top: 16px;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-3);
+}
+
+.close-btn:hover {
+  background-color: var(--color-surface-soft);
+  color: var(--color-text-1);
+}
+
+.form-error {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
 textarea.input {
   min-height: 68px;
   resize: vertical;

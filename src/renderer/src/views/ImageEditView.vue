@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  shallowRef,
+  watch
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { imageStore, type EditableImage } from '../stores/imageStore'
 import { formatSize } from '../utils/format'
@@ -929,8 +940,16 @@ const applyOcrToField = async (): Promise<void> => {
   }
 }
 
-onMounted(() => {
+const bindKeydown = (): void => {
   window.addEventListener('keydown', handleKeydown)
+}
+
+const unbindKeydown = (): void => {
+  window.removeEventListener('keydown', handleKeydown)
+}
+
+onMounted(() => {
+  bindKeydown()
   void imageStore.ensureImageData(String(route.params.id))
   void loadArchiveFields()
   void loadBatchBgColor()
@@ -939,8 +958,25 @@ onMounted(() => {
     syncResolution()
   })
 })
+
+// 作为标签页被缓存时：失活解绑全局快捷键，重新激活后恢复并同步档案状态
+onActivated(() => {
+  bindKeydown()
+  const target = image.value
+  if (target?.arcId) imageStore.selectArchive(target.arcId)
+  void imageStore.ensureImageData(String(route.params.id))
+  void nextTick(() => {
+    observeStage()
+    syncResolution()
+  })
+})
+
+onDeactivated(() => {
+  unbindKeydown()
+})
+
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
+  unbindKeydown()
   stageObserver?.disconnect()
   stageObserver = null
   endZoomDrag()
