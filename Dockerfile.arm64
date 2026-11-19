@@ -1,0 +1,27 @@
+
+FROM --platform=linux/arm64 node:22-bullseye
+
+WORKDIR /project
+
+# Debian 11 软件源已归档
+RUN sed -i \
+    -e 's|deb.debian.org/debian|archive.debian.org/debian|g' \
+    -e 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' \
+    -e '/bullseye-updates/d' \
+    /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' \
+    > /etc/apt/apt.conf.d/99no-check-valid-until
+
+# 安装 C/C++ 原生模块编译工具
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    pkg-config \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV npm_config_build_from_source=true
+
+CMD ["bash"]
