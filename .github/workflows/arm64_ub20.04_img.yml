@@ -8,6 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Asia/Shanghai
     steps:
       - name: 安装基础依赖
         run: |
