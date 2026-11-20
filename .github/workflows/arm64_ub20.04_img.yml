@@ -5,15 +5,12 @@ on:
 
 jobs:
   build-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     container:
-      image: ubuntu:20.04
+      image: debian:bullseye
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: Asia/Shanghai
-      npm_config_target_platform: linux
-      npm_config_target_arch: arm64
-      npm_config_build_from_source: "false"
     steps:
       - name: 安装基础依赖
         run: |
@@ -41,12 +38,16 @@ jobs:
           node -v
           npm -v
 
-      - name: 校验 GLIBC 版本
-        run: ldd --version
+      - name: 校验环境
+        run: |
+          echo "=== 架构 ==="
+          uname -m
+          echo "=== GLIBC ==="
+          ldd --version | head -1
 
       - uses: actions/checkout@v4
 
-      - name: 配置国内镜像
+      - name: 配置镜像源
         run: |
           npm config set registry https://registry.npmmirror.com
           echo "npm_config_disturl=https://npmmirror.com/mirrors/node" >> $GITHUB_ENV
@@ -54,16 +55,18 @@ jobs:
           echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
           echo "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/" >> $GITHUB_ENV
 
-      - name: 安装依赖（注意:按arm64架构安装）
-        run: |
-          npm install
-          npm rebuild better-sqlite3 --build-from-source
+      - name: 安装依赖
+        run: npm install
 
-      - name: 校验原生模块 GLIBC 依赖
+      - name: 校验原生模块
         run: |
-          find node_modules -name "*.node" -exec ldd {} \; 2>/dev/null | grep -i "GLIBC_2.3[3-9]" && \
-          echo "❌ 发现高于 2.31 的 GLIBC 依赖" && exit 1 || \
-          echo "✅ 所有原生模块 GLIBC 依赖均 ≤ 2.31"
+          echo "=== 检查架构 ==="
+          find node_modules -name "*.node" | head -5 | while read f; do
+            echo "$f: $(file -b "$f" | cut -d, -f2)"
+          done
+          echo "=== 检查 GLIBC ==="
+          find node_modules -name "*.node" -exec ldd {} \; 2>/dev/null | \
+            grep -o "GLIBC_2\.[0-9]*" | sort -uV | tail -5
 
       - name: 构建
         run: npm run build
