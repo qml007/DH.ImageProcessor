@@ -12,9 +12,17 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Asia/Shanghai
     steps:
+      - name: 换源（bullseye 已归档）
+        run: |
+          cat > /etc/apt/sources.list << 'EOF'
+          deb http://archive.debian.org/debian bullseye main contrib non-free
+          deb http://archive.debian.org/debian-security bullseye-security main contrib non-free
+          EOF
+          rm -f /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          apt-get update -o Acquire::Check-Valid-Until=false
+
       - name: 安装基础依赖
         run: |
-          apt-get update
           apt-get install -y \
             curl \
             git \
