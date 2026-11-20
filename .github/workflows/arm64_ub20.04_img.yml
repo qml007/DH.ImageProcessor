@@ -1,0 +1,72 @@
+name: Build ARM64
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
+    steps:
+      - name: 安装基础依赖
+        run: |
+          apt-get update
+          apt-get install -y \
+            curl \
+            git \
+            ca-certificates \
+            build-essential \
+            python3 \
+            pkg-config \
+            libssl-dev \
+            libx11-dev \
+            libxkbfile-dev \
+            libsecret-1-dev \
+            libgbm-dev \
+            libnss3 \
+            libasound2
+          apt-get clean
+
+      - name: 安装 Node.js 22
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+          apt-get install -y nodejs
+          node -v
+          npm -v
+
+      - name: 校验 GLIBC 版本
+        run: ldd --version
+
+      - uses: actions/checkout@v4
+
+      - name: 配置国内镜像
+        run: |
+          npm config set registry https://registry.npmmirror.com
+          echo "npm_config_disturl=https://npmmirror.com/mirrors/node" >> $GITHUB_ENV
+          echo "npm_config_python=/usr/bin/python3" >> $GITHUB_ENV
+          echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
+          echo "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/" >> $GITHUB_ENV
+
+      - name: 安装依赖（源码编译原生模块）
+        run: npm install --build-from-source
+
+      - name: 校验原生模块 GLIBC 依赖
+        run: |
+          find node_modules -name "*.node" -exec ldd {} \; 2>/dev/null | grep -i "GLIBC_2.3[3-9]" && \
+          echo "❌ 发现高于 2.31 的 GLIBC 依赖" && exit 1 || \
+          echo "✅ 所有原生模块 GLIBC 依赖均 ≤ 2.31"
+
+      - name: 构建
+        run: npm run build
+
+      - name: 打包 deb
+        run: npx electron-builder --linux deb --arm64 --publish never
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-arm64
+          path: dist/*.deb
