@@ -1,4 +1,4 @@
-name: Build ARM64
+name: Build_arm64_ub20.04_img
 
 on:
   push:
