@@ -514,6 +514,8 @@ export interface BatInfoRow {
   sortNo: number
   bgColor: string
   memo: string
+  /** 该批次包含的档案数量 */
+  arcCount: number
 }
 
 export interface BatInfoListResult {

@@ -37,6 +37,7 @@ const BATCH_STORAGE_KEY = 'dh.currentBatchId'
 
 const state = reactive({
   batId: localStorage.getItem(BATCH_STORAGE_KEY) ?? '',
+  batCode: '',
   archives: [] as Archive[],
   /** 各档案的图像数量（进入页面时从数据库一次性统计） */
   archiveCounts: {} as Record<string, number>,
@@ -146,6 +147,20 @@ const refreshArchiveCounts = async (): Promise<void> => {
   state.archiveCounts = counts
 }
 
+const loadBatchCode = async (): Promise<void> => {
+  if (!state.batId) {
+    state.batCode = ''
+    return
+  }
+
+  try {
+    const result = await window.api.getBatInfo({ batId: state.batId })
+    state.batCode = result.ok ? (result.item?.batCode ?? '') : ''
+  } catch {
+    state.batCode = ''
+  }
+}
+
 const reloadArchives = async (): Promise<void> => {
   if (!state.batId) {
     state.archives = []
@@ -177,6 +192,11 @@ const reloadArchives = async (): Promise<void> => {
 export const imageStore = {
   get batId(): string {
     return state.batId
+  },
+
+  /** 当前批次编号，用于页面与标签标题展示 */
+  get batCode(): string {
+    return state.batCode
   },
 
   get loading(): boolean {
@@ -224,13 +244,14 @@ export const imageStore = {
     state.batId = batId
     state.activeArchiveId = ''
     localStorage.setItem(BATCH_STORAGE_KEY, batId)
+    await loadBatchCode()
     await reloadArchives()
   },
 
   /** 应用启动时按上次选择的批次恢复数据 */
   async restore(): Promise<void> {
     if (!state.batId) return
-    await reloadArchives()
+    await Promise.all([loadBatchCode(), reloadArchives()])
   },
 
   async reloadArchives(): Promise<void> {

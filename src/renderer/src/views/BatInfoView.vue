@@ -14,6 +14,7 @@ interface BatInfoRow {
   sortNo: number
   bgColor: string
   memo: string
+  arcCount: number
 }
 
 interface ArcTypeOption {
@@ -28,18 +29,35 @@ const loading = ref(false)
 const error = ref('')
 const defaultBgColor = ref('#FFFFFF')
 
+// 状态过滤：全部 / 已完成（status=1） / 未完成（status!=1）
+type StatusFilter = 'all' | 'done' | 'pending'
+const statusFilter = ref<StatusFilter>('all')
+
+const filteredItems = computed(() => {
+  if (statusFilter.value === 'all') return items.value
+  return items.value.filter((item) =>
+    statusFilter.value === 'done' ? item.status === 1 : item.status !== 1
+  )
+})
+
 // 批次列表分页：默认每页 10 条，可自行调整
 const pageSizeOptions = [10, 20, 50, 100]
 const page = ref(1)
 const pageSize = ref(10)
-const totalPages = computed(() => Math.max(1, Math.ceil(items.value.length / pageSize.value)))
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredItems.value.length / pageSize.value))
+)
 const currentPage = computed(() => Math.min(page.value, totalPages.value))
 const pagedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
-  return items.value.slice(start, start + pageSize.value)
+  return filteredItems.value.slice(start, start + pageSize.value)
 })
 
 watch(pageSize, () => {
+  page.value = 1
+})
+
+watch(statusFilter, () => {
   page.value = 1
 })
 
@@ -185,6 +203,14 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
         <p class="page-description">按档案类型建立批次，批次字段在创建时快照固定。</p>
       </div>
       <div class="page-actions">
+        <label class="filter-field">
+          <span class="filter-label">状态</span>
+          <select v-model="statusFilter" class="input filter-select">
+            <option value="all">所有</option>
+            <option value="done">已完成</option>
+            <option value="pending">未完成</option>
+          </select>
+        </label>
         <button class="btn btn-primary" type="button" @click="openCreate">新增批次</button>
       </div>
     </div>
@@ -199,6 +225,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
               <tr>
                 <th>批次编号</th>
                 <th>档案类型</th>
+                <th>档案数</th>
                 <th>建立时间</th>
                 <th>状态</th>
                 <th>排序号</th>
@@ -215,6 +242,7 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
                 <td>
                   <strong>{{ row.arcTypeName }}</strong>
                 </td>
+                <td class="mono-cell">{{ row.arcCount }}</td>
                 <td class="time-cell">{{ formatTime(row.timeOfCreate) }}</td>
                 <td>
                   <span class="tag" :class="row.status === 1 ? 'tag-success' : 'tag-neutral'">
@@ -288,10 +316,11 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
             </tbody>
           </table>
           <p v-if="!items.length" class="empty-state">暂无批次，点击右上角「新增批次」开始。</p>
+          <p v-else-if="!filteredItems.length" class="empty-state">当前筛选条件下没有批次。</p>
         </div>
 
-        <div v-if="items.length" class="pagination">
-          <span>共 {{ items.length }} 条记录</span>
+        <div v-if="filteredItems.length" class="pagination">
+          <span>共 {{ filteredItems.length }} 条记录</span>
           <div class="pagination-right">
             <label class="page-size">
               每页
@@ -521,6 +550,20 @@ textarea.input {
   text-align: center;
   font-size: 13px;
   color: var(--color-text-3);
+}
+
+.filter-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+
+.filter-select {
+  height: 34px;
+  padding: 0 8px;
+  cursor: pointer;
 }
 
 .pagination-right {

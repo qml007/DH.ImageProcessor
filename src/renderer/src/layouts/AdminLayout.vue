@@ -8,6 +8,7 @@ import {
   type RouteLocationNormalizedLoaded
 } from 'vue-router'
 import { consumeTabReplace } from '../utils/tabs'
+import { imageStore } from '../stores/imageStore'
 
 interface MenuItem {
   path: string
@@ -142,11 +143,23 @@ const tabBarRef = ref<HTMLElement | null>(null)
 
 const resolveTabTitle = (target: RouteLocationNormalizedLoaded): string => {
   const base = (target.meta.title as string) ?? '页面'
+
+  // 图像编辑页面向整个批次，标题展示批次编号而非图片 id
+  if (target.name === 'image-edit') {
+    return imageStore.batCode ? `${base} · ${imageStore.batCode}` : base
+  }
+
   const param = target.params.id ?? target.params.typeId ?? target.params.batId
   if (!param) return base
 
   const text = Array.isArray(param) ? param.join('/') : param
   return `${base} · ${text.length > 10 ? `${text.slice(0, 6)}…` : text}`
+}
+
+/** 标签文本：编辑页实时跟随当前批次编号 */
+const tabLabel = (tab: TabItem): string => {
+  if (!tab.path.startsWith('/images/edit')) return tab.title
+  return imageStore.batCode ? `图像编辑 · ${imageStore.batCode}` : '图像编辑'
 }
 
 const openTab = (target: RouteLocationNormalizedLoaded, previousPath?: string): void => {
@@ -366,11 +379,11 @@ const handleSearch = (): void => {
           :class="{ active: route.path === tab.path }"
           @click="activateTab(tab)"
         >
-          <span class="tab-label" :title="tab.title">{{ tab.title }}</span>
+          <span class="tab-label" :title="tabLabel(tab)">{{ tabLabel(tab) }}</span>
           <button
             class="tab-close"
             type="button"
-            :title="`关闭 ${tab.title}`"
+            :title="`关闭 ${tabLabel(tab)}`"
             @click.stop="closeTab(tab)"
           >
             <svg

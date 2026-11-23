@@ -74,7 +74,10 @@ const positionText = computed(() =>
 // 当前批次底色：旋转、去色、保留居中、区域处理等需要填充背景的操作使用
 const batchBgColor = ref('#FFFFFF')
 
-const loadBatchBgColor = async (): Promise<void> => {
+// 当前批次编号
+const batCode = ref('')
+
+const loadBatchInfo = async (): Promise<void> => {
   const batId = imageStore.batId
   if (!batId) return
 
@@ -82,6 +85,7 @@ const loadBatchBgColor = async (): Promise<void> => {
     const result = await window.api.getBatInfo({ batId })
     if (result.ok && result.item?.bgColor) {
       batchBgColor.value = result.item.bgColor
+      batCode.value = result.item.batCode
     }
   } catch (error) {
     console.error('Failed to load batch bg color:', error)
@@ -978,7 +982,7 @@ onMounted(() => {
   bindKeydown()
   void imageStore.ensureImageData(String(route.params.id))
   void loadArchiveFields()
-  void loadBatchBgColor()
+  void loadBatchInfo()
   void refreshBitDepth()
   void nextTick(() => {
     observeStage()
@@ -1621,7 +1625,7 @@ const handleAction = (action: EditAction): void => {
           </button>
         </div>
         <div>
-          <h2 class="page-title"> {{ imageStore.activeArchive?.name || '无档案'}} / {{ image ? image.name : '图片编辑' }}</h2>
+          <h2 class="page-title">{{ batCode }} / {{ imageStore.activeArchive?.name || '无档案'}} / {{ image ? image.name : '图片编辑' }}</h2>
           <!-- <p class="page-description">调整图片方向与倾斜角度，确认后保留或去除。</p> -->
         </div>
       </div>

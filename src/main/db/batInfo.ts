@@ -21,6 +21,8 @@ export interface BatInfoRow {
   sortNo: number
   bgColor: string
   memo: string
+  /** 该批次包含的档案数量 */
+  arcCount: number
 }
 
 export interface BatInfoInput {
@@ -53,6 +55,7 @@ const mapBatInfoRow = (row: {
   sortNo: number
   bgColor: string
   memo: string | null
+  arcCount: number
 }): BatInfoRow => ({
   batId: row.batId,
   batCode: row.batCode,
@@ -62,11 +65,12 @@ const mapBatInfoRow = (row: {
   status: row.status,
   sortNo: row.sortNo,
   bgColor: row.bgColor,
-  memo: row.memo ?? ''
+  memo: row.memo ?? '',
+  arcCount: row.arcCount ?? 0
 })
 
 const SELECT_COLS =
-  'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo'
+  'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo, (SELECT COUNT(*) FROM arcInfo a WHERE a.batId = batInfo.batId) AS arcCount'
 
 // 生成当日批次编号：b_yyyymmdd_xxx，xxx 为当日序号（3 位补零）
 // 调用方须在事务内使用，保证 count 与 insert 之间无并发插入
