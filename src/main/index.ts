@@ -3,7 +3,7 @@ import { execFile } from 'child_process'
 import { createHash, randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { pathToFileURL } from 'url'
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, open, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
@@ -360,6 +360,163 @@ async function readImageFile(filePath: string): Promise<ImportedImage | null> {
   } catch (error) {
     console.error('Failed to read image:', filePath, error)
     return null
+  }
+}
+
+interface ImageBitDepthInfo {
+  /** 每像素总位数，如 RGB(8×3) 为 24 */
+  depth: number
+  /** 颜色模式描述，如 RGB / RGBA / 索引 */
+  colorMode: string
+}
+
+/** 位深度解析只需读取文件头，256KB 足以覆盖常见格式的元数据 */
+const BIT_DEPTH_HEADER_SIZE = 262144
+
+function describeJpegComponents(components: number): string {
+  if (components === 1) return '灰度'
+  if (components === 3) return 'RGB'
+  if (components === 4) return 'CMYK'
+  return ''
+}
+
+/** 通过文件头解析图像的位深度与颜色模式 */
+function parseImageHeader(buffer: Buffer): ImageBitDepthInfo | null {
+  // PNG：IHDR 中第 24 字节为每通道位深度，第 25 字节为颜色类型
+  if (
+    buffer.length >= 26 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    const bitDepth = buffer[24]
+    const colorType = buffer[25]
+    const modes: Record<number, string> = {
+      0: '灰度',
+      2: 'RGB',
+      3: '索引',
+      4: '灰度+Alpha',
+      6: 'RGBA'
+    }
+    // 索引色按每像素位深统计，其余按 位深度×通道数 得到每像素总位数
+    const channels: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }
+    return { depth: bitDepth * (channels[colorType] ?? 1), colorMode: modes[colorType] ?? '' }
+  }
+
+  // JPEG：遍历标记段，定位 SOFn 帧头
+  if (buffer.length >= 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2
+    while (offset + 10 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset += 1
+        continue
+      }
+
+      const marker = buffer[offset + 1]
+      if (marker === 0xff) {
+        offset += 1
+        continue
+      }
+
+      // 无长度字段的独立标记
+      if (marker === 0x01 || marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) {
+        offset += 2
+        continue
+      }
+
+      // 到达图像数据或文件末尾仍未找到帧头
+      if (marker === 0xd9 || marker === 0xda) return null
+
+      const length = (buffer[offset + 2] << 8) | buffer[offset + 3]
+      if (length < 2) return null
+
+      // SOF0~SOF15，排除 DHT(C4)/JPG(C8)/DAC(CC)
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        const precision = buffer[offset + 4]
+        const components = buffer[offset + 9]
+        return {
+          depth: precision * components,
+          colorMode: describeJpegComponents(components)
+        }
+      }
+
+      offset += 2 + length
+    }
+    return null
+  }
+
+  // GIF：调色板最多 256 色，固定按 8 位索引色统计
+  if (buffer.length >= 11 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+    return { depth: 8, colorMode: '索引' }
+  }
+
+  // BMP：文件头偏移 28 处为位深度
+  if (buffer.length >= 30 && buffer[0] === 0x42 && buffer[1] === 0x4d) {
+    const depth = buffer.readUInt16LE(28)
+    const modes: Record<number, string> = {
+      1: '单色',
+      4: '索引',
+      8: '索引',
+      16: 'RGB',
+      24: 'RGB',
+      32: 'RGBA'
+    }
+    return { depth, colorMode: modes[depth] ?? '' }
+  }
+
+  // WebP：遍历 RIFF 块，VP8 为有损(24 位)，VP8L 为无损(32 位)
+  if (
+    buffer.length >= 30 &&
+    buffer[0] === 0x52 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  ) {
+    let offset = 12
+    while (offset + 8 <= buffer.length) {
+      const tag = buffer.toString('ascii', offset, offset + 4)
+      const size = buffer.readUInt32LE(offset + 4)
+      if (tag === 'VP8 ') return { depth: 24, colorMode: 'RGB' }
+      if (tag === 'VP8L') return { depth: 32, colorMode: 'RGBA' }
+      offset += tag === 'VP8X' ? 18 : 8 + size + (size % 2)
+    }
+    return null
+  }
+
+  // ICO：目录项偏移 14 处为位深度
+  if (
+    buffer.length >= 16 &&
+    buffer[0] === 0 &&
+    buffer[1] === 0 &&
+    buffer[2] === 1 &&
+    buffer[3] === 0
+  ) {
+    const depth = buffer.readUInt16LE(14)
+    return { depth: depth || 32, colorMode: depth === 32 ? 'RGBA' : '' }
+  }
+
+  return null
+}
+
+async function detectImageBitDepth(filePath: string): Promise<ImageBitDepthInfo | null> {
+  const handle = await open(filePath, 'r')
+  try {
+    const buffer = Buffer.alloc(BIT_DEPTH_HEADER_SIZE)
+    const { bytesRead } = await handle.read(buffer, 0, BIT_DEPTH_HEADER_SIZE, 0)
+    return parseImageHeader(buffer.subarray(0, bytesRead))
+  } catch (error) {
+    console.error('Failed to detect image bit depth:', filePath, error)
+    return null
+  } finally {
+    await handle.close()
   }
 }
 
@@ -1756,6 +1913,22 @@ app.whenReady().then(() => {
     }
 
     return { ok: true, removed }
+  })
+
+  // 读取图像位深度：绝对路径为原始文件，相对路径为临时文件
+  ipcMain.handle('image:bit-depth', async (_event, payload: { path: string }) => {
+    try {
+      const target = isAbsolute(payload.path) ? payload.path : await resolveTempPath(payload.path)
+      if (!target) return { ok: false, message: '图像路径无效' }
+
+      const info = await detectImageBitDepth(target)
+      if (!info) return { ok: false, message: '无法识别图像位深度' }
+
+      return { ok: true, depth: info.depth, colorMode: info.colorMode }
+    } catch (error) {
+      console.error('Failed to read image bit depth:', error)
+      return { ok: false, message: '读取图像位深度失败' }
+    }
   })
 
   createWindow()

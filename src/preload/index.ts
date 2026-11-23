@@ -18,6 +18,8 @@ const api = {
     ipcRenderer.invoke('image:read-file', payload),
   readTempImage: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:read-temp', payload),
+  getImageBitDepth: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('image:bit-depth', payload),
   deleteTempImages: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:delete-temp', payload),
   selectPdfFolder: (): Promise<unknown> => ipcRenderer.invoke('pdf:select-folder'),

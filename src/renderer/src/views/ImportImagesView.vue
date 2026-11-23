@@ -22,6 +22,7 @@ import type {
 import { formatSize } from '../utils/format'
 import { isPdfReadyDataUrl, toPdfJpegDataUrl } from '../utils/image'
 import { rasterizePdf } from '../utils/pdf'
+import { markTabReplace } from '../utils/tabs'
 
 const router = useRouter()
 
@@ -267,7 +268,10 @@ const importFolder = async (): Promise<void> => {
 }
 
 const editImage = (target: EditableImage): void => {
-  router.push({ name: 'image-edit', params: { id: target.id } })
+  // 进入编辑页复用当前标签，避免新开标签
+  const to = { name: 'image-edit', params: { id: target.id } }
+  markTabReplace(router.resolve(to).path)
+  router.push(to)
 }
 
 const applyExportProgress = (progress: PdfExportProgress): void => {

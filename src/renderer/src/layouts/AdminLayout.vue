@@ -7,6 +7,7 @@ import {
   useRouter,
   type RouteLocationNormalizedLoaded
 } from 'vue-router'
+import { consumeTabReplace } from '../utils/tabs'
 
 interface MenuItem {
   path: string
@@ -148,8 +149,30 @@ const resolveTabTitle = (target: RouteLocationNormalizedLoaded): string => {
   return `${base} · ${text.length > 10 ? `${text.slice(0, 6)}…` : text}`
 }
 
-const openTab = (target: RouteLocationNormalizedLoaded): void => {
-  if (!target.name || tabs.value.some((tab) => tab.path === target.path)) return
+const openTab = (target: RouteLocationNormalizedLoaded, previousPath?: string): void => {
+  if (!target.name) return
+
+  // 编辑页内切换图片/档案：用目标页替换当前标签，而不是新开标签
+  if (previousPath && previousPath !== target.path && consumeTabReplace(target.path)) {
+    const previousIndex = tabs.value.findIndex((tab) => tab.path === previousPath)
+    if (previousIndex !== -1) {
+      const alreadyOpen = tabs.value.some(
+        (tab, index) => index !== previousIndex && tab.path === target.path
+      )
+      if (alreadyOpen) {
+        tabs.value.splice(previousIndex, 1)
+      } else {
+        tabs.value[previousIndex] = {
+          path: target.path,
+          title: resolveTabTitle(target),
+          component: routeViewNames[String(target.name)] ?? ''
+        }
+      }
+      return
+    }
+  }
+
+  if (tabs.value.some((tab) => tab.path === target.path)) return
 
   tabs.value.push({
     path: target.path,
@@ -161,6 +184,10 @@ const openTab = (target: RouteLocationNormalizedLoaded): void => {
 const cachedViews = computed(() =>
   Array.from(new Set(tabs.value.map((tab) => tab.component).filter(Boolean)))
 )
+
+/** 编辑页在不同图片间切换时复用同一实例，字段值跟随档案而非单张图片 */
+const resolveViewKey = (target: RouteLocationNormalizedLoaded): string =>
+  target.name === 'image-edit' ? 'image-edit' : target.path
 
 const activateTab = (target: TabItem): void => {
   if (route.path !== target.path) void router.push(target.path)
@@ -193,8 +220,8 @@ const scrollActiveTabIntoView = async (): Promise<void> => {
 
 watch(
   () => route.path,
-  () => {
-    openTab(route)
+  (_path, previousPath) => {
+    openTab(route, previousPath)
     void scrollActiveTabIntoView()
   },
   { immediate: true }
@@ -363,7 +390,7 @@ const handleSearch = (): void => {
       <main class="content">
         <RouterView v-slot="{ Component, route: activeRoute }">
           <KeepAlive :include="cachedViews" :max="12">
-            <component :is="Component" :key="activeRoute.path" />
+            <component :is="Component" :key="resolveViewKey(activeRoute)" />
           </KeepAlive>
         </RouterView>
       </main>

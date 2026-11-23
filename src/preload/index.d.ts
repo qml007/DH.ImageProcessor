@@ -118,6 +118,19 @@ export interface DeleteTempImagesResult {
   removed: number
 }
 
+export interface ImageBitDepthPayload {
+  path: string
+}
+
+export interface ImageBitDepthResult {
+  ok: boolean
+  /** 每像素总位数，如 RGB 为 24 */
+  depth?: number
+  /** 颜色模式，如 RGB / RGBA / 索引 */
+  colorMode?: string
+  message?: string
+}
+
 export interface SelectPdfFolderResult {
   canceled: boolean
   dir: string
@@ -836,6 +849,7 @@ export interface RendererApi {
   setDefaultBgColor: (payload: SetDefaultBgColorPayload) => Promise<SetDefaultBgColorResult>
   saveTempImage: (payload: SaveTempImagePayload) => Promise<SaveTempImageResult>
   readTempImage: (payload: ReadTempImagePayload) => Promise<ReadTempImageResult>
+  getImageBitDepth: (payload: ImageBitDepthPayload) => Promise<ImageBitDepthResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>

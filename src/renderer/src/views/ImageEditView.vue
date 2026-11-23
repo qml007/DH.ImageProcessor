@@ -14,6 +14,7 @@ import {
 import { useRoute, useRouter } from 'vue-router'
 import { imageStore, type EditableImage } from '../stores/imageStore'
 import { formatSize } from '../utils/format'
+import { markTabReplace } from '../utils/tabs'
 import {
   rotateImage,
   flipImage,
@@ -289,6 +290,30 @@ const syncResolution = (): void => {
 
   resolution.value = { width: img.naturalWidth, height: img.naturalHeight }
   computeFitScale()
+}
+
+// 浏览器解码后无法还原源文件位深度，需由主进程读取文件头
+const bitDepthText = ref('')
+let bitDepthToken = 0
+
+const refreshBitDepth = async (): Promise<void> => {
+  const target = image.value
+  // 优先取原始文件（与格式/大小同源）；PDF 页面无独立源文件时回退到临时文件
+  const source = target?.path && !target.path.includes('#page=') ? target.path : target?.tempPath
+  const token = ++bitDepthToken
+
+  if (!source) {
+    bitDepthText.value = ''
+    return
+  }
+
+  const result = await window.api.getImageBitDepth({ path: source })
+  if (token !== bitDepthToken) return
+
+  bitDepthText.value =
+    result.ok && result.depth
+      ? `${result.depth} 位${result.colorMode ? `（${result.colorMode}）` : ''}`
+      : ''
 }
 
 const MIN_ZOOM = 10
@@ -859,6 +884,7 @@ const saveArchiveFields = async (): Promise<void> => {
 
   if (missing.length) {
     fieldsMessage.value = `请填写必填字段：${missing.map((item) => item.fieldName).join('、')}`
+    flashNotice(fieldsMessage.value)
     return
   }
 
@@ -953,6 +979,7 @@ onMounted(() => {
   void imageStore.ensureImageData(String(route.params.id))
   void loadArchiveFields()
   void loadBatchBgColor()
+  void refreshBitDepth()
   void nextTick(() => {
     observeStage()
     syncResolution()
@@ -965,6 +992,7 @@ onActivated(() => {
   const target = image.value
   if (target?.arcId) imageStore.selectArchive(target.arcId)
   void imageStore.ensureImageData(String(route.params.id))
+  void refreshBitDepth()
   void nextTick(() => {
     observeStage()
     syncResolution()
@@ -1008,12 +1036,15 @@ watch(
   () => {
     clearSelection()
     if (manualMode.value) cancelManual()
+    void refreshBitDepth()
     void nextTick(syncResolution)
   }
 )
 
 const goBack = (): void => {
-  router.push({ name: 'images' })
+  const to = { name: 'images' }
+  markTabReplace(router.resolve(to).path)
+  router.push(to)
 }
 
 const findCurrentArchiveIndex = (): number => {
@@ -1048,7 +1079,9 @@ const goArchiveByOffset = async (offset: 1 | -1): Promise<void> => {
 
     if (targetImages.length) {
       imageStore.selectArchive(targetArchive.id)
-      router.push({ name: 'image-edit', params: { id: targetImages[0].id } })
+      const to = { name: 'image-edit', params: { id: targetImages[0].id } }
+      markTabReplace(router.resolve(to).path)
+      router.push(to)
       return
     }
 
@@ -1096,7 +1129,9 @@ const nextArchiveHint = computed(() => {
 
 const openImage = (target?: EditableImage): void => {
   if (!target) return
-  router.push({ name: 'image-edit', params: { id: target.id } })
+  const to = { name: 'image-edit', params: { id: target.id } }
+  markTabReplace(router.resolve(to).path)
+  router.push(to)
 }
 
 const goPrev = (): void => openImage(prevImage.value)
@@ -1863,6 +1898,10 @@ const handleAction = (action: EditAction): void => {
             <li>
               <span>大小</span>
               <strong>{{ formatSize(image.size) }}</strong>
+            </li>
+            <li>
+              <span>位深度</span>
+              <strong>{{ bitDepthText || '未知' }}</strong>
             </li>
             <li>
               <span>路径</span>
