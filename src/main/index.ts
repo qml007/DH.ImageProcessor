@@ -1156,6 +1156,7 @@ app.whenReady().then(() => {
         fieldName: string
         fieldType: string
         isRequired: number
+        defaultValue?: string
         memo?: string
       }
     ) => {
@@ -1178,6 +1179,7 @@ app.whenReady().then(() => {
         fieldName: string
         fieldType: string
         isRequired: number
+        defaultValue?: string
         memo?: string
       }
     ) => {

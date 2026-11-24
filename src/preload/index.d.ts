@@ -584,6 +584,7 @@ export interface BatArcFieldInfoRow {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue: string
   memo: string
 }
 
@@ -603,6 +604,7 @@ export interface BatArcFieldInfoSavePayload {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue?: string
   memo?: string
 }
 

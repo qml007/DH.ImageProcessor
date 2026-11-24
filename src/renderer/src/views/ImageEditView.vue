@@ -842,6 +842,7 @@ interface ArcFieldDef {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue: string
   memo: string
 }
 
@@ -942,6 +943,14 @@ const loadArchiveFields = async (): Promise<void> => {
     const dbItems = values.ok ? (values.items ?? []) : []
     for (const item of dbItems) {
       fieldValues[item.batFieldId] = item.fieldValue
+    }
+
+    // 该档案尚无任何字段值记录时，用字段默认值预填输入框；已有记录则不再加载默认值
+    if (!dbItems.length) {
+      for (const field of fieldDefs.value) {
+        const defaultValue = field.defaultValue ?? ''
+        if (defaultValue) fieldValues[field.id] = defaultValue
+      }
     }
 
     applyFieldBaseline(dbItems)

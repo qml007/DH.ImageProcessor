@@ -70,6 +70,7 @@ const createSchema = (db: Database.Database): void => {
       fieldName TEXT NOT NULL,
       fieldType TEXT NOT NULL,
       isRequired INTEGER NOT NULL DEFAULT 0,
+      defaultValue TEXT,
       memo TEXT
     );
 
@@ -183,6 +184,7 @@ const ensureColumn = (
 const migrateSchema = (db: Database.Database): void => {
   ensureColumn(db, 'batInfo', 'memo', 'memo TEXT')
   ensureColumn(db, 'batInfo', 'bgColor', "bgColor TEXT NOT NULL DEFAULT '#FFFFFF'")
+  ensureColumn(db, 'batArcFieldInfo', 'defaultValue', 'defaultValue TEXT')
 }
 
 const openDatabase = (file: string): Database.Database => {

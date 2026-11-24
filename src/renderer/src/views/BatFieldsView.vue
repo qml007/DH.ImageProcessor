@@ -21,6 +21,7 @@ interface BatFieldRow {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue: string
   memo: string
 }
 
@@ -90,6 +91,7 @@ const form = reactive({
   fieldName: '',
   fieldType: '字符串',
   isRequired: 0,
+  defaultValue: '',
   memo: ''
 })
 const formError = ref('')
@@ -206,6 +208,7 @@ const openCreate = (): void => {
   form.fieldName = ''
   form.fieldType = '字符串'
   form.isRequired = 0
+  form.defaultValue = ''
   form.memo = ''
   formError.value = ''
   modalVisible.value = true
@@ -217,6 +220,7 @@ const openEdit = (row: BatFieldRow): void => {
   form.fieldName = row.fieldName
   form.fieldType = row.fieldType
   form.isRequired = row.isRequired
+  form.defaultValue = row.defaultValue
   form.memo = row.memo
   formError.value = ''
   modalVisible.value = true
@@ -236,6 +240,7 @@ const submitForm = async (): Promise<void> => {
       fieldName: form.fieldName.trim(),
       fieldType: form.fieldType,
       isRequired: form.isRequired,
+      defaultValue: form.defaultValue.trim(),
       memo: form.memo.trim()
     }
     const result = editing.value
@@ -354,6 +359,7 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
                 <th style="width: 70px">顺序号</th>
                 <th>字段名称</th>
                 <th>字段类型</th>
+                <th>默认值</th>
                 <th>是否必须</th>
                 <th>备注</th>
                 <th v-if="!isCompleted" class="col-actions">操作</th>
@@ -368,6 +374,7 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
                 <td>
                   <span class="tag tag-neutral">{{ row.fieldType }}</span>
                 </td>
+                <td class="memo-cell">{{ row.defaultValue || '—' }}</td>
                 <td>
                   <span class="tag" :class="row.isRequired === 1 ? 'tag-danger' : 'tag-neutral'">
                     {{ row.isRequired === 1 ? '必须' : '可选' }}
@@ -596,6 +603,16 @@ const removeItem = async (row: BatFieldRow): Promise<void> => {
             <select id="field-type" v-model="form.fieldType" class="input">
               <option v-for="t in fieldTypeOptions" :key="t" :value="t">{{ t }}</option>
             </select>
+          </div>
+          <div class="form-item modal-gap">
+            <label class="form-label" for="field-default">默认值</label>
+            <input
+              id="field-default"
+              v-model="form.defaultValue"
+              class="input"
+              type="text"
+              placeholder="可选：该档案还没有字段值时自动填入"
+            />
           </div>
           <div class="form-item modal-gap">
             <label class="form-label">是否必须</label>

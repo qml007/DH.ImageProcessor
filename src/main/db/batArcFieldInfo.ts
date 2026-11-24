@@ -9,6 +9,7 @@ export interface BatArcFieldInfoRow {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue: string
   memo: string
 }
 
@@ -18,6 +19,7 @@ export interface BatArcFieldInfoInput {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue?: string
   memo?: string
 }
 
@@ -28,6 +30,7 @@ const mapRow = (row: {
   fieldName: string
   fieldType: string
   isRequired: number
+  defaultValue: string | null
   memo: string | null
 }): BatArcFieldInfoRow => ({
   id: row.id,
@@ -36,10 +39,11 @@ const mapRow = (row: {
   fieldName: row.fieldName,
   fieldType: row.fieldType,
   isRequired: row.isRequired,
+  defaultValue: row.defaultValue ?? '',
   memo: row.memo ?? ''
 })
 
-const SELECT_COLS = 'id, batId, sortNo, fieldName, fieldType, isRequired, memo'
+const SELECT_COLS = 'id, batId, sortNo, fieldName, fieldType, isRequired, defaultValue, memo'
 
 export function listBatArcFieldInfo(batId: string): BatArcFieldInfoRow[] {
   const rows = getDatabase()
@@ -61,8 +65,8 @@ export function createBatArcFieldInfo(input: BatArcFieldInfoInput): BatArcFieldI
   const db = getDatabase()
   const id = generateSnowflakeId()
   db.prepare(
-    `INSERT INTO batArcFieldInfo (id, batId, sortNo, fieldName, fieldType, isRequired, memo)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO batArcFieldInfo (id, batId, sortNo, fieldName, fieldType, isRequired, defaultValue, memo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.batId,
@@ -70,6 +74,7 @@ export function createBatArcFieldInfo(input: BatArcFieldInfoInput): BatArcFieldI
     input.fieldName,
     input.fieldType,
     input.isRequired,
+    input.defaultValue ?? '',
     input.memo ?? ''
   )
   return getBatArcFieldInfo(id)!
@@ -82,7 +87,7 @@ export function updateBatArcFieldInfo(
   const db = getDatabase()
   const info = db
     .prepare(
-      `UPDATE batArcFieldInfo SET batId = ?, sortNo = ?, fieldName = ?, fieldType = ?, isRequired = ?, memo = ?
+      `UPDATE batArcFieldInfo SET batId = ?, sortNo = ?, fieldName = ?, fieldType = ?, isRequired = ?, defaultValue = ?, memo = ?
        WHERE id = ?`
     )
     .run(
@@ -91,6 +96,7 @@ export function updateBatArcFieldInfo(
       input.fieldName,
       input.fieldType,
       input.isRequired,
+      input.defaultValue ?? '',
       input.memo ?? '',
       id
     )
