@@ -964,7 +964,7 @@ const applyOcrToField = async (): Promise<void> => {
       return
     }
 
-    fieldValues[fieldId] = text
+    fieldValues[fieldId] = (fieldValues[fieldId] ?? '') + text // 合并识别到的文字 text
     fieldsMessage.value = '已识别文字并填入字段，请核对'
     flashNotice('已识别文字并填入字段')
   } catch (error) {
@@ -1974,9 +1974,7 @@ const handleAction = (action: EditAction): void => {
             </div>
 
             <p v-if="fieldsLoading" class="archive-fields-tip">加载中…</p>
-            <p v-else-if="!fieldDefs.length" class="archive-fields-tip">
-              该批次未定义档案字段
-            </p>
+            <p v-else-if="!fieldDefs.length" class="archive-fields-tip">该批次未定义档案字段</p>
             <div v-else class="archive-field-list">
               <label v-for="field in fieldDefs" :key="field.id" class="archive-field-item">
                 <span class="archive-field-name">
@@ -1988,6 +1986,7 @@ const handleAction = (action: EditAction): void => {
                     v-model="fieldValues[field.id]"
                     class="input archive-field-input"
                     type="text"
+                    :title="fieldValues[field.id]"
                     :placeholder="field.memo || '请输入'"
                   />
                   <button
