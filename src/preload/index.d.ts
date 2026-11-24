@@ -853,6 +853,25 @@ export interface ArcFieldValueUpsertResult {
   message?: string
 }
 
+export interface ArcFieldValueSyncItem {
+  batFieldId: string
+  fieldName: string
+  fieldValue: string
+}
+
+export interface ArcFieldValueSyncPayload {
+  arcId: string
+  items: ArcFieldValueSyncItem[]
+}
+
+export interface ArcFieldValueSyncResult {
+  ok: boolean
+  inserted?: number
+  updated?: number
+  deleted?: number
+  message?: string
+}
+
 export interface RendererApi {
   openImages: () => Promise<OpenImagesResult>
   openImageFolder: () => Promise<OpenImagesResult>
@@ -938,6 +957,7 @@ export interface RendererApi {
   upsertArcFieldValue: (
     payload: ArcFieldValueUpsertPayload
   ) => Promise<ArcFieldValueUpsertResult>
+  syncArcFieldValue: (payload: ArcFieldValueSyncPayload) => Promise<ArcFieldValueSyncResult>
   recognizeRegion: (payload: OcrRecognizeRegionPayload) => Promise<OcrRecognizeRegionResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void
 }

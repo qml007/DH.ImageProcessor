@@ -852,12 +852,76 @@ const fieldsSaving = ref(false)
 const fieldsMessage = ref('')
 const ocrFieldId = ref('')
 const ocrRecognizing = ref(false)
+// 当前已加载字段值对应的档案，以及加载时的数据库快照（用于自动保存差异判断）
+const loadedArcId = ref('')
+const loadedFieldDefs = ref<ArcFieldDef[]>([])
+const fieldsBaseline = ref<Record<string, string>>({})
+let fieldsFlushPromise: Promise<void> | null = null
+
+interface FieldSyncItem {
+  batFieldId: string
+  fieldName: string
+  fieldValue: string
+}
+
+const buildFieldSyncItems = (defs: ArcFieldDef[]): FieldSyncItem[] =>
+  defs.map((field) => ({
+    batFieldId: field.id,
+    fieldName: field.fieldName,
+    fieldValue: (fieldValues[field.id] ?? '').trim()
+  }))
+
+const applyFieldBaseline = (items: Array<{ batFieldId: string; fieldValue: string }>): void => {
+  const next: Record<string, string> = {}
+  for (const item of items) next[item.batFieldId] = item.fieldValue
+  fieldsBaseline.value = next
+}
+
+/** 自动保存：与已加载的数据库快照比较，有变化才提交；空值由主进程删除已有行 */
+const flushArchiveFields = async (): Promise<void> => {
+  const arcId = loadedArcId.value
+  if (!arcId || fieldsLoading.value || !loadedFieldDefs.value.length) return
+
+  if (fieldsFlushPromise) await fieldsFlushPromise
+
+  const items = buildFieldSyncItems(loadedFieldDefs.value)
+  const changed = items.some(
+    (item) => (fieldsBaseline.value[item.batFieldId] ?? '') !== item.fieldValue
+  )
+  if (!changed) return
+
+  fieldsFlushPromise = (async (): Promise<void> => {
+    try {
+      const result = await window.api.syncArcFieldValue({ arcId, items })
+      if (result.ok) {
+        applyFieldBaseline(items)
+      } else {
+        console.error('自动保存档案字段失败：', result.message)
+      }
+    } catch (error) {
+      console.error('自动保存档案字段失败：', error)
+    } finally {
+      fieldsFlushPromise = null
+    }
+  })()
+
+  await fieldsFlushPromise
+}
 
 const loadArchiveFields = async (): Promise<void> => {
   const target = image.value
   if (!target || !imageStore.batId) {
+    await flushArchiveFields()
+    loadedArcId.value = ''
+    loadedFieldDefs.value = []
+    fieldsBaseline.value = {}
     fieldDefs.value = []
     return
+  }
+
+  // 切换档案前，先自动保存上一份档案的字段值
+  if (loadedArcId.value && loadedArcId.value !== target.arcId) {
+    await flushArchiveFields()
   }
 
   ocrFieldId.value = ''
@@ -875,9 +939,14 @@ const loadArchiveFields = async (): Promise<void> => {
       delete fieldValues[key]
     }
 
-    for (const item of values.ok ? (values.items ?? []) : []) {
+    const dbItems = values.ok ? (values.items ?? []) : []
+    for (const item of dbItems) {
       fieldValues[item.batFieldId] = item.fieldValue
     }
+
+    applyFieldBaseline(dbItems)
+    loadedArcId.value = target.arcId
+    loadedFieldDefs.value = fieldDefs.value.map((field) => ({ ...field }))
   } catch (error) {
     console.error(error)
   } finally {
@@ -887,31 +956,21 @@ const loadArchiveFields = async (): Promise<void> => {
 
 const saveArchiveFields = async (): Promise<void> => {
   const target = image.value
-  if (!target || fieldsSaving.value) return
+  if (!target || fieldsSaving.value || fieldsLoading.value) return
 
-  const missing = fieldDefs.value.filter(
-    (field) => field.isRequired === 1 && !(fieldValues[field.id] ?? '').trim()
-  )
-
-  if (missing.length) {
-    fieldsMessage.value = `请填写必填字段：${missing.map((item) => item.fieldName).join('、')}`
-    flashNotice(fieldsMessage.value)
-    return
-  }
-
+  // “是否必须”仅作提示，未填写也允许保存
   fieldsSaving.value = true
   fieldsMessage.value = ''
   try {
-    const result = await window.api.upsertArcFieldValue({
-      items: fieldDefs.value.map((field) => ({
-        arcId: target.arcId,
-        batFieldId: field.id,
-        fieldName: field.fieldName,
-        fieldValue: fieldValues[field.id] ?? ''
-      }))
-    })
+    const items = buildFieldSyncItems(fieldDefs.value)
+    const result = await window.api.syncArcFieldValue({ arcId: target.arcId, items })
 
-    fieldsMessage.value = result.ok ? '档案字段已保存' : result.message || '保存失败'
+    if (result.ok) {
+      if (loadedArcId.value === target.arcId) applyFieldBaseline(items)
+      fieldsMessage.value = '档案字段已保存'
+    } else {
+      fieldsMessage.value = result.message || '保存失败'
+    }
   } catch (error) {
     fieldsMessage.value = error instanceof Error ? error.message : '保存失败'
   } finally {
@@ -1012,10 +1071,12 @@ onActivated(() => {
 
 onDeactivated(() => {
   unbindKeydown()
+  void flushArchiveFields()
 })
 
 onUnmounted(() => {
   unbindKeydown()
+  void flushArchiveFields()
   stageObserver?.disconnect()
   stageObserver = null
   endZoomDrag()
@@ -1052,7 +1113,8 @@ watch(
   }
 )
 
-const goBack = (): void => {
+const goBack = async (): Promise<void> => {
+  await flushArchiveFields()
   const to = { name: 'images' }
   markTabReplace(router.resolve(to).path)
   router.push(to)

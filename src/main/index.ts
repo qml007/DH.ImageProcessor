@@ -52,6 +52,7 @@ import {
   normalizeBgColor,
   setConfig,
   setDefaultAiSettingInfo,
+  syncArcFieldValue,
   truncateArcImageHistory,
   updateAiSettingInfo,
   updateArcFieldInfo,
@@ -1411,6 +1412,24 @@ app.whenReady().then(() => {
       try {
         const saved = (payload.items ?? []).map((item) => upsertArcFieldValue(item))
         return { ok: true, items: saved }
+      } catch (error) {
+        return dbError(error)
+      }
+    }
+  )
+
+  // 按差异同步档案字段值：仅写入变化项，空值删除已有行
+  ipcMain.handle(
+    'arcFieldValue:sync',
+    (
+      _event,
+      payload: {
+        arcId: string
+        items: Array<{ batFieldId: string; fieldName: string; fieldValue: string }>
+      }
+    ) => {
+      try {
+        return { ok: true, ...syncArcFieldValue(payload.arcId, payload.items ?? []) }
       } catch (error) {
         return dbError(error)
       }

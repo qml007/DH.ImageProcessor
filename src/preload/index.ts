@@ -138,6 +138,8 @@ const api = {
     ipcRenderer.invoke('arcFieldValue:list', payload),
   upsertArcFieldValue: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('arcFieldValue:upsert', payload),
+  syncArcFieldValue: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('arcFieldValue:sync', payload),
 
   // OCR 文字识别
   recognizeRegion: (payload: unknown): Promise<unknown> =>
