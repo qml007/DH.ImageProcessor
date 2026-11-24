@@ -30,6 +30,7 @@
     "electron-updater": "^6.8.11",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",
+    "sharp": "^0.34.5",
     "vue-router": "^5.3.1",
     "write-excel-file": "^4.1.1"
   },

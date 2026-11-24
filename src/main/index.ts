@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { mkdir, open, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
+import sharp from 'sharp'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
@@ -372,6 +373,17 @@ interface ImageBitDepthInfo {
 
 /** 位深度解析只需读取文件头，256KB 足以覆盖常见格式的元数据 */
 const BIT_DEPTH_HEADER_SIZE = 262144
+
+/** 去黑边：从每条边向内清理的最大范围（占该方向边长的比例） */
+const BORDER_CLEAN_RANGE_RATIO = 0.2
+/** 去黑边：黑边外侧允许存在的白边宽度（占该方向边长的比例） */
+const BORDER_CLEAN_GAP_RATIO = 0.02
+/** 去黑边：黑边内部允许的零散亮点（最多连续几个），避免噪点中断检测 */
+const BORDER_CLEAN_HOLE_TOLERANCE = 3
+/** 去黑边：亮度低于该值视为黑边像素（含抗锯齿灰边） */
+const BORDER_DARK_THRESHOLD = 185
+/** 去黑边：在黑边内侧额外清理的像素，用于吃掉抗锯齿光晕 */
+const BORDER_CLEAN_FEATHER = 2
 
 function describeJpegComponents(components: number): string {
   if (components === 1) return '灰度'
@@ -1861,6 +1873,159 @@ app.whenReady().then(() => {
       } catch (error) {
         console.error('Failed to save temp image:', error)
         return { ok: false, message: '写入临时文件夹失败' }
+      }
+    }
+  )
+
+  // 去黑边：扫描件边缘的黑边用批次底色填充，保持图像尺寸不变
+  ipcMain.handle(
+    'image:clean-border',
+    async (_event, payload: { dataUrl: string; bgColor?: string }) => {
+      try {
+        const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(payload.dataUrl)
+        if (!match) return { ok: false, message: '图片数据格式无效' }
+
+        const hex = /^#?([0-9a-fA-F]{6})$/.exec(payload.bgColor?.trim() ?? '')
+        const hexValue = hex ? hex[1] : 'FFFFFF'
+        const fill = {
+          r: parseInt(hexValue.slice(0, 2), 16),
+          g: parseInt(hexValue.slice(2, 4), 16),
+          b: parseInt(hexValue.slice(4, 6), 16)
+        }
+
+        // 转成 RGB 原始像素，便于逐像素清理边缘黑边
+        const { data, info } = await sharp(Buffer.from(match[2], 'base64'))
+          .rotate()
+          .flatten({ background: `#${hexValue}` })
+          .toColourspace('srgb')
+          .raw()
+          .toBuffer({ resolveWithObject: true })
+
+        const { width, height, channels } = info
+
+        // 用亮度判定：黑边常带抗锯齿灰边，单通道硬阈值会漏掉大量灰边
+        const isDark = (x: number, y: number): boolean => {
+          const i = (y * width + x) * channels
+          const luminance =
+            channels >= 3
+              ? 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+              : data[i]
+          return luminance <= BORDER_DARK_THRESHOLD
+        }
+
+        const rangeX = Math.max(4, Math.round(width * BORDER_CLEAN_RANGE_RATIO))
+        const rangeY = Math.max(4, Math.round(height * BORDER_CLEAN_RANGE_RATIO))
+        const gapX = Math.min(rangeX, 32, Math.max(8, Math.round(width * BORDER_CLEAN_GAP_RATIO)))
+        const gapY = Math.min(rangeY, 32, Math.max(8, Math.round(height * BORDER_CLEAN_GAP_RATIO)))
+
+        // 从一条扫描线的一端向内测黑边厚度：先跳过外侧白边，再吃掉一段暗像素（含断点）
+        const measureThickness = (
+          range: number,
+          gap: number,
+          darkAt: (offset: number) => boolean
+        ): number => {
+          let start = -1
+          for (let offset = 0; offset < gap && start < 0; offset += 1) {
+            if (darkAt(offset)) start = offset
+          }
+          if (start < 0) return 0
+
+          let end = start
+          let holes = 0
+          while (end < range) {
+            if (darkAt(end)) {
+              holes = 0
+            } else if (holes >= BORDER_CLEAN_HOLE_TOLERANCE) {
+              break
+            } else {
+              holes += 1
+            }
+            end += 1
+          }
+
+          // 触及扫描上限说明是连续暗区而非细黑边，交给其他方向或保持原样
+          const thickness = end + BORDER_CLEAN_FEATHER
+          return thickness >= range ? 0 : thickness
+        }
+
+        // 断续黑线会在断点处留下缺口，用两侧邻近行的厚度补齐
+        const closeGaps = (profile: Uint16Array): void => {
+          const radius = 8
+          const source = Uint16Array.from(profile)
+          for (let i = 0; i < source.length; i += 1) {
+            if (source[i]) continue
+            let before = 0
+            let after = 0
+            for (let k = 1; k <= radius; k += 1) {
+              if (!before && i - k >= 0) before = source[i - k]
+              if (!after && i + k < source.length) after = source[i + k]
+            }
+            if (before && after) profile[i] = Math.min(before, after)
+          }
+        }
+
+        const leftProfile = new Uint16Array(height)
+        const rightProfile = new Uint16Array(height)
+        for (let y = 0; y < height; y += 1) {
+          leftProfile[y] = measureThickness(rangeX, gapX, (offset) => isDark(offset, y))
+          rightProfile[y] = measureThickness(rangeX, gapX, (offset) =>
+            isDark(width - 1 - offset, y)
+          )
+        }
+        closeGaps(leftProfile)
+        closeGaps(rightProfile)
+
+        const topProfile = new Uint16Array(width)
+        const bottomProfile = new Uint16Array(width)
+        for (let x = 0; x < width; x += 1) {
+          topProfile[x] = measureThickness(rangeY, gapY, (offset) => isDark(x, offset))
+          bottomProfile[x] = measureThickness(rangeY, gapY, (offset) =>
+            isDark(x, height - 1 - offset)
+          )
+        }
+        closeGaps(topProfile)
+        closeGaps(bottomProfile)
+
+        const detected = [topProfile, bottomProfile, leftProfile, rightProfile].some((profile) =>
+          profile.some((value) => value > 0)
+        )
+
+        if (!detected) {
+          return { ok: false, message: '未检测到需要清理的黑边' }
+        }
+
+        const setFill = (x: number, y: number): void => {
+          const i = (y * width + x) * channels
+          data[i] = fill.r
+          if (channels >= 3) {
+            data[i + 1] = fill.g
+            data[i + 2] = fill.b
+          }
+        }
+
+        for (let x = 0; x < width; x += 1) {
+          const top = topProfile[x]
+          for (let y = 0; y < top; y += 1) setFill(x, y)
+          const bottom = bottomProfile[x]
+          for (let y = height - bottom; y < height; y += 1) setFill(x, y)
+        }
+
+        for (let y = 0; y < height; y += 1) {
+          const left = leftProfile[y]
+          for (let x = 0; x < left; x += 1) setFill(x, y)
+          const right = rightProfile[y]
+          for (let x = Math.max(width - right, left); x < width; x += 1) setFill(x, y)
+        }
+
+        const output = await sharp(data, { raw: { width, height, channels } }).png().toBuffer()
+
+        return {
+          ok: true,
+          dataUrl: `data:image/png;base64,${output.toString('base64')}`
+        }
+      } catch (error) {
+        console.error('Failed to clean image border:', error)
+        return { ok: false, message: '去黑边失败' }
       }
     }
   )

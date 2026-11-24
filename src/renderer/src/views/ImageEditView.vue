@@ -143,6 +143,13 @@ const actions: EditAction[] = [
     icon: ['M12 3.5c3.6 4 6.2 7.2 6.2 10.5a6.2 6.2 0 1 1-12.4 0c0-3.3 2.6-6.5 6.2-10.5z']
   },
   {
+    key: 'clean-border',
+    label: '去黑边',
+    desc: '去除图像四周的黑边，并以底色填充',
+    variant: 'default',
+    icon: ['M3 3h18v18H3z', 'M7 7h10v10H7z']
+  },
+  {
     key: 'discard',
     label: '去除',
     desc: '将所选区域清空为底色',
@@ -1353,6 +1360,31 @@ const applyColorEffect = async (mode: 'grayscale' | 'vintage' | 'sharpen'): Prom
   }
 }
 
+const applyBorderClean = async (): Promise<void> => {
+  const target = image.value
+  if (!target || processing.value) return
+
+  processing.value = true
+  try {
+    const result = await window.api.cleanImageBorder({
+      dataUrl: target.dataUrl,
+      bgColor: batchBgColor.value
+    })
+    if (!result.ok || !result.dataUrl) {
+      flashNotice(result.message || '去黑边失败，请稍后重试')
+      return
+    }
+
+    const done = await persistState(target, result.dataUrl, target.rotation, '去黑边')
+    flashNotice(done ? '已去除黑边，结果已保存到临时文件夹' : '写入临时文件夹失败，结果未生效')
+  } catch (error) {
+    console.error(error)
+    flashNotice('去黑边失败，请稍后重试')
+  } finally {
+    processing.value = false
+  }
+}
+
 // 对候选方向图做 OCR 打分，用于判断 ±90° 中哪个方向才是正立
 const scoreOrientation = async (candidate: string): Promise<number> => {
   try {
@@ -1575,6 +1607,11 @@ const handleAction = (action: EditAction): void => {
 
   if (action.key === 'remove-color') {
     void startPick()
+    return
+  }
+
+  if (action.key === 'clean-border') {
+    void applyBorderClean()
     return
   }
 

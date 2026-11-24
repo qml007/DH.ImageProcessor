@@ -93,6 +93,19 @@ export interface ReadImageFilePayload {
   path: string
 }
 
+export interface CleanImageBorderPayload {
+  dataUrl: string
+  /** 填充用的批次底色，如 #FFFFFF */
+  bgColor?: string
+}
+
+export interface CleanImageBorderResult {
+  ok: boolean
+  /** 清理后的 PNG data URL（尺寸不变） */
+  dataUrl?: string
+  message?: string
+}
+
 export interface ReadImageFileResult {
   ok: boolean
   dataUrl?: string
@@ -852,6 +865,7 @@ export interface RendererApi {
   saveTempImage: (payload: SaveTempImagePayload) => Promise<SaveTempImageResult>
   readTempImage: (payload: ReadTempImagePayload) => Promise<ReadTempImageResult>
   getImageBitDepth: (payload: ImageBitDepthPayload) => Promise<ImageBitDepthResult>
+  cleanImageBorder: (payload: CleanImageBorderPayload) => Promise<CleanImageBorderResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>
