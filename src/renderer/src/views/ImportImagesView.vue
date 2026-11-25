@@ -10,7 +10,12 @@ import {
   watch
 } from 'vue'
 import { useRouter } from 'vue-router'
-import { imageStore, type Archive, type AddImageItem, type EditableImage } from '../stores/imageStore'
+import {
+  imageStore,
+  type Archive,
+  type AddImageItem,
+  type EditableImage
+} from '../stores/imageStore'
 import type {
   OpenImagesResult,
   PdfExportArchive,
@@ -41,6 +46,7 @@ interface BatchOption {
   arcTypeId: string
   arcTypeName: string
   status: number
+  arcNamePreStr: string
 }
 
 const batches = ref<BatchOption[]>([])
@@ -58,7 +64,8 @@ const loadBatches = async (): Promise<void> => {
           batCode: item.batCode,
           arcTypeId: item.arcTypeId,
           arcTypeName: item.arcTypeName,
-          status: item.status
+          status: item.status,
+          arcNamePreStr: item.arcNamePreStr ?? ''
         }))
     }
 
@@ -143,6 +150,17 @@ const exportTargets = computed(() =>
 )
 
 const totalSize = computed(() => images.value.reduce((sum, item) => sum + item.size, 0))
+
+function sanitizeFileName(name: string): string {
+  const cleaned = Array.from(name)
+    .filter((char) => char.charCodeAt(0) >= 32)
+    .join('')
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 80)
+  return cleaned || 'archive'
+}
 
 const flashMessage = (text: string): void => {
   message.value = text
@@ -456,10 +474,15 @@ const exportPdf = async (dir: string, doubleLayer: boolean): Promise<void> => {
 
   try {
     const archives: PdfExportArchive[] = []
+    const preStr = imageStore.arcNamePreStr ?? ''
 
     for (const item of targets) {
       const prepared = await prepareArchiveImages(item.id)
-      const archive: PdfExportArchive = { name: item.name, images: prepared.images }
+      const archive: PdfExportArchive = {
+        name: item.name,
+        images: prepared.images,
+        fileName: sanitizeFileName(`${preStr}${item.name}`)
+      }
       // 单层 PDF 不携带 OCR 版本信息，确保不会写入任何文字层
       if (doubleLayer) archive.metas = prepared.metas
       archives.push(archive)
@@ -989,7 +1012,9 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <path
+                  d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                />
                 <path d="M12 11v6" />
                 <path d="M9 14h6" />
               </svg>
@@ -1271,9 +1296,7 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
             >
               {{ exportOptions.dir || '尚未选择文件夹' }}
             </span>
-            <button class="btn btn-sm" type="button" @click="pickExportFolder">
-              选择文件夹
-            </button>
+            <button class="btn btn-sm" type="button" @click="pickExportFolder">选择文件夹</button>
           </div>
         </div>
 

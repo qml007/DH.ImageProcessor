@@ -20,6 +20,10 @@ export interface BatInfoRow {
   status: number
   sortNo: number
   bgColor: string
+  /** 档案名称位数，默认 4 */
+  arcNameLen: number
+  /** 档案名称前缀，导出时拼接在档案名称前 */
+  arcNamePreStr: string
   memo: string
   /** 该批次包含的档案数量 */
   arcCount: number
@@ -39,6 +43,10 @@ export interface BatInfoInput {
   sortNo?: number
   /** 不传则取系统设置中的默认底色 */
   bgColor?: string
+  /** 默认 4 */
+  arcNameLen?: number
+  /** 默认空字符串 */
+  arcNamePreStr?: string
   memo?: string
 }
 
@@ -54,6 +62,8 @@ const mapBatInfoRow = (row: {
   status: number
   sortNo: number
   bgColor: string
+  arcNameLen: number
+  arcNamePreStr: string | null
   memo: string | null
   arcCount: number
 }): BatInfoRow => ({
@@ -65,12 +75,14 @@ const mapBatInfoRow = (row: {
   status: row.status,
   sortNo: row.sortNo,
   bgColor: row.bgColor,
+  arcNameLen: row.arcNameLen ?? 4,
+  arcNamePreStr: row.arcNamePreStr ?? '',
   memo: row.memo ?? '',
   arcCount: row.arcCount ?? 0
 })
 
 const SELECT_COLS =
-  'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo, (SELECT COUNT(*) FROM arcInfo a WHERE a.batId = batInfo.batId) AS arcCount'
+  'batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, arcNameLen, arcNamePreStr, memo, (SELECT COUNT(*) FROM arcInfo a WHERE a.batId = batInfo.batId) AS arcCount'
 
 // 生成当日批次编号：b_yyyymmdd_xxx，xxx 为当日序号（3 位补零）
 // 调用方须在事务内使用，保证 count 与 insert 之间无并发插入
@@ -95,7 +107,9 @@ export function listBatInfo(arcTypeId?: string): BatInfoRow[] {
   const rows = (
     arcTypeId
       ? db
-          .prepare(`SELECT ${SELECT_COLS} FROM batInfo WHERE arcTypeId = ? ORDER BY timeOfCreate DESC, batCode DESC`)
+          .prepare(
+            `SELECT ${SELECT_COLS} FROM batInfo WHERE arcTypeId = ? ORDER BY timeOfCreate DESC, batCode DESC`
+          )
           .all(arcTypeId)
       : db
           .prepare(`SELECT ${SELECT_COLS} FROM batInfo ORDER BY timeOfCreate DESC, batCode DESC`)
@@ -116,8 +130,7 @@ export function getBatInfo(batId: string): BatInfoRow | null {
 export function createBatInfo(input: BatInfoInput): BatInfoRow {
   const db = getDatabase()
 
-  const arcTypeName =
-    input.arcTypeName ?? getArcType(input.arcTypeId)?.arcTypeName
+  const arcTypeName = input.arcTypeName ?? getArcType(input.arcTypeId)?.arcTypeName
   if (!arcTypeName) {
     throw new Error(`档案类型不存在：${input.arcTypeId}`)
   }
@@ -129,8 +142,8 @@ export function createBatInfo(input: BatInfoInput): BatInfoRow {
     const bgColor = normalizeBgColor(input.bgColor) || defaultBgColor()
 
     db.prepare(
-      `INSERT INTO batInfo (batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, memo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO batInfo (batId, batCode, arcTypeId, arcTypeName, timeOfCreate, status, sortNo, bgColor, arcNameLen, arcNamePreStr, memo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       batId,
       batCode,
@@ -140,6 +153,8 @@ export function createBatInfo(input: BatInfoInput): BatInfoRow {
       input.status ?? BAT_STATUS_IN_PROGRESS,
       input.sortNo ?? 0,
       bgColor,
+      input.arcNameLen ?? 4,
+      input.arcNamePreStr ?? '',
       input.memo ?? ''
     )
     return batId
@@ -167,7 +182,7 @@ export function updateBatInfo(
 
   const info = db
     .prepare(
-      `UPDATE batInfo SET batCode = ?, arcTypeId = ?, arcTypeName = ?, status = ?, sortNo = ?, bgColor = ?, memo = ?
+      `UPDATE batInfo SET batCode = ?, arcTypeId = ?, arcTypeName = ?, status = ?, sortNo = ?, bgColor = ?, arcNameLen = ?, arcNamePreStr = ?, memo = ?
        WHERE batId = ?`
     )
     .run(
@@ -177,6 +192,8 @@ export function updateBatInfo(
       input.status ?? existing.status,
       input.sortNo ?? existing.sortNo,
       normalizeBgColor(input.bgColor) || existing.bgColor,
+      input.arcNameLen ?? existing.arcNameLen,
+      input.arcNamePreStr ?? existing.arcNamePreStr,
       input.memo ?? existing.memo,
       batId
     )

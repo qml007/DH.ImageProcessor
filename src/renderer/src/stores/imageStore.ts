@@ -29,15 +29,15 @@ export interface AddImageItem extends ImportedImage {
   pdfPageCount?: number
 }
 
-type EditableImagePatch = Partial<
-  Omit<EditableImage, 'id' | 'arcId' | 'history' | 'historyIndex'>
->
+type EditableImagePatch = Partial<Omit<EditableImage, 'id' | 'arcId' | 'history' | 'historyIndex'>>
 
 const BATCH_STORAGE_KEY = 'dh.currentBatchId'
 
 const state = reactive({
   batId: localStorage.getItem(BATCH_STORAGE_KEY) ?? '',
   batCode: '',
+  arcNameLen: 4,
+  arcNamePreStr: '',
   archives: [] as Archive[],
   /** 各档案的图像数量（进入页面时从数据库一次性统计） */
   archiveCounts: {} as Record<string, number>,
@@ -53,9 +53,11 @@ const loadedArchives = new Set<string>()
 // tempPath 用于校验缓存是否对应当前版本，图像被处理后缓存自动失效
 const dataUrlCache = new Map<string, { dataUrl: string; tempPath: string }>()
 
-const formatArchiveName = (value: number): string => String(value).padStart(4, '0')
+const formatArchiveName = (value: number, len: number): string =>
+  String(value).padStart(Math.max(len, 1), '0')
 
 const computeNextArchiveName = (): string => {
+  const len = state.arcNameLen ?? 4
   const taken = new Set(state.archives.map((item) => item.name.trim()))
   const numeric = state.archives
     .map((item) => item.name.trim())
@@ -63,11 +65,11 @@ const computeNextArchiveName = (): string => {
     .map((name) => Number.parseInt(name, 10))
 
   let next = numeric.length ? Math.max(...numeric) + 1 : 1
-  let name = formatArchiveName(next)
+  let name = formatArchiveName(next, len)
 
   while (taken.has(name)) {
     next += 1
-    name = formatArchiveName(next)
+    name = formatArchiveName(next, len)
   }
 
   return name
@@ -147,17 +149,29 @@ const refreshArchiveCounts = async (): Promise<void> => {
   state.archiveCounts = counts
 }
 
-const loadBatchCode = async (): Promise<void> => {
+const loadBatchInfo = async (): Promise<void> => {
   if (!state.batId) {
     state.batCode = ''
+    state.arcNameLen = 4
+    state.arcNamePreStr = ''
     return
   }
 
   try {
     const result = await window.api.getBatInfo({ batId: state.batId })
-    state.batCode = result.ok ? (result.item?.batCode ?? '') : ''
+    if (result.ok && result.item) {
+      state.batCode = result.item.batCode
+      state.arcNameLen = result.item.arcNameLen ?? 4
+      state.arcNamePreStr = result.item.arcNamePreStr ?? ''
+    } else {
+      state.batCode = ''
+      state.arcNameLen = 4
+      state.arcNamePreStr = ''
+    }
   } catch {
     state.batCode = ''
+    state.arcNameLen = 4
+    state.arcNamePreStr = ''
   }
 }
 
@@ -197,6 +211,16 @@ export const imageStore = {
   /** 当前批次编号，用于页面与标签标题展示 */
   get batCode(): string {
     return state.batCode
+  },
+
+  /** 当前批次的档案名称位数 */
+  get arcNameLen(): number {
+    return state.arcNameLen
+  },
+
+  /** 当前批次的档案名称前缀 */
+  get arcNamePreStr(): string {
+    return state.arcNamePreStr
   },
 
   get loading(): boolean {
@@ -244,14 +268,14 @@ export const imageStore = {
     state.batId = batId
     state.activeArchiveId = ''
     localStorage.setItem(BATCH_STORAGE_KEY, batId)
-    await loadBatchCode()
+    await loadBatchInfo()
     await reloadArchives()
   },
 
   /** 应用启动时按上次选择的批次恢复数据 */
   async restore(): Promise<void> {
     if (!state.batId) return
-    await Promise.all([loadBatchCode(), reloadArchives()])
+    await Promise.all([loadBatchInfo(), reloadArchives()])
   },
 
   async reloadArchives(): Promise<void> {
@@ -367,7 +391,10 @@ export const imageStore = {
   /**
    * 向指定档案导入图像：先写 arcImage，再为每张图生成 seq0 原始版本临时文件。
    */
-  async add(list: AddImageItem[], archiveId = state.activeArchiveId): Promise<{
+  async add(
+    list: AddImageItem[],
+    archiveId = state.activeArchiveId
+  ): Promise<{
     added: number
     skipped: number
   }> {

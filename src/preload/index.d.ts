@@ -526,6 +526,10 @@ export interface BatInfoRow {
   status: number
   sortNo: number
   bgColor: string
+  /** 档案名称位数，默认 4 */
+  arcNameLen: number
+  /** 档案名称前缀，导出时拼接在档案名称前 */
+  arcNamePreStr: string
   memo: string
   /** 该批次包含的档案数量 */
   arcCount: number
@@ -542,6 +546,10 @@ export interface BatInfoSavePayload {
   status?: number
   sortNo?: number
   bgColor?: string
+  /** 默认 4 */
+  arcNameLen?: number
+  /** 默认空字符串 */
+  arcNamePreStr?: string
   memo?: string
 }
 
@@ -890,9 +898,7 @@ export interface RendererApi {
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>
-  exportArchiveExcel: (
-    payload: ArchiveExcelExportPayload
-  ) => Promise<ArchiveExcelExportResult>
+  exportArchiveExcel: (payload: ArchiveExcelExportPayload) => Promise<ArchiveExcelExportResult>
   getDatabaseInfo: () => Promise<DatabaseInfoResult>
   listConfig: () => Promise<ConfigListResult>
   getConfig: (payload: ConfigGetPayload) => Promise<ConfigGetResult>
@@ -900,12 +906,8 @@ export interface RendererApi {
   deleteConfig: (payload: ConfigDeletePayload) => Promise<ConfigDeleteResult>
   listAiSettingInfo: () => Promise<AiSettingInfoListResult>
   createAiSettingInfo: (payload: AiSettingInfoSavePayload) => Promise<AiSettingInfoSaveResult>
-  updateAiSettingInfo: (
-    payload: AiSettingInfoUpdatePayload
-  ) => Promise<AiSettingInfoSaveResult>
-  deleteAiSettingInfo: (
-    payload: AiSettingInfoDeletePayload
-  ) => Promise<AiSettingInfoDeleteResult>
+  updateAiSettingInfo: (payload: AiSettingInfoUpdatePayload) => Promise<AiSettingInfoSaveResult>
+  deleteAiSettingInfo: (payload: AiSettingInfoDeletePayload) => Promise<AiSettingInfoDeleteResult>
   setDefaultAiSettingInfo: (payload: AiSettingInfoDeletePayload) => Promise<AiSettingInfoSaveResult>
   testAiSettingInfo: (payload: AiSettingInfoTestPayload) => Promise<AiSettingInfoTestResult>
   aiChatStart: (payload: AiChatStartPayload) => Promise<AiChatStartResult>
@@ -941,14 +943,10 @@ export interface RendererApi {
   deleteArcInfo: (payload: ArcInfoDeletePayload) => Promise<ArcInfoDeleteResult>
   listArcImage: (payload: ArcImageListPayload) => Promise<ArcImageListResult>
   countArcImage: (payload: ArcImageCountPayload) => Promise<ArcImageCountResult>
-  createArcImageBatch: (
-    payload: ArcImageCreateBatchPayload
-  ) => Promise<ArcImageCreateBatchResult>
+  createArcImageBatch: (payload: ArcImageCreateBatchPayload) => Promise<ArcImageCreateBatchResult>
   updateArcImage: (payload: ArcImageUpdatePayload) => Promise<ArcImageSaveResult>
   deleteArcImage: (payload: ArcImageDeletePayload) => Promise<ArcImageDeleteResult>
-  listArcImageHistory: (
-    payload: ArcImageHistoryListPayload
-  ) => Promise<ArcImageHistoryListResult>
+  listArcImageHistory: (payload: ArcImageHistoryListPayload) => Promise<ArcImageHistoryListResult>
   createArcImageHistory: (
     payload: ArcImageHistoryCreatePayload
   ) => Promise<ArcImageHistoryCreateResult>
@@ -956,9 +954,7 @@ export interface RendererApi {
     payload: ArcImageHistoryTruncatePayload
   ) => Promise<ArcImageHistoryTruncateResult>
   listArcFieldValue: (payload: ArcFieldValueListPayload) => Promise<ArcFieldValueListResult>
-  upsertArcFieldValue: (
-    payload: ArcFieldValueUpsertPayload
-  ) => Promise<ArcFieldValueUpsertResult>
+  upsertArcFieldValue: (payload: ArcFieldValueUpsertPayload) => Promise<ArcFieldValueUpsertResult>
   syncArcFieldValue: (payload: ArcFieldValueSyncPayload) => Promise<ArcFieldValueSyncResult>
   recognizeRegion: (payload: OcrRecognizeRegionPayload) => Promise<OcrRecognizeRegionResult>
   onPdfExportProgress: (callback: (progress: PdfExportProgress) => void) => () => void

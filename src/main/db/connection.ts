@@ -58,6 +58,8 @@ const createSchema = (db: Database.Database): void => {
       status INTEGER NOT NULL DEFAULT 0,
       sortNo INTEGER NOT NULL DEFAULT 0,
       bgColor TEXT NOT NULL DEFAULT '#FFFFFF',
+      arcNameLen INTEGER NOT NULL DEFAULT 4,
+      arcNamePreStr TEXT,
       memo TEXT
     );
 
@@ -184,6 +186,8 @@ const ensureColumn = (
 const migrateSchema = (db: Database.Database): void => {
   ensureColumn(db, 'batInfo', 'memo', 'memo TEXT')
   ensureColumn(db, 'batInfo', 'bgColor', "bgColor TEXT NOT NULL DEFAULT '#FFFFFF'")
+  ensureColumn(db, 'batInfo', 'arcNameLen', 'arcNameLen INTEGER NOT NULL DEFAULT 4')
+  ensureColumn(db, 'batInfo', 'arcNamePreStr', 'arcNamePreStr TEXT')
   ensureColumn(db, 'batArcFieldInfo', 'defaultValue', 'defaultValue TEXT')
 }
 

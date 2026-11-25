@@ -13,6 +13,8 @@ interface BatInfoRow {
   status: number
   sortNo: number
   bgColor: string
+  arcNameLen: number
+  arcNamePreStr: string
   memo: string
   arcCount: number
 }
@@ -68,6 +70,8 @@ const form = reactive({
   status: 0,
   sortNo: 0,
   bgColor: '#FFFFFF',
+  arcNameLen: 4,
+  arcNamePreStr: '',
   memo: ''
 })
 const formError = ref('')
@@ -132,6 +136,8 @@ const openCreate = (): void => {
   form.status = 0
   form.sortNo = items.value.length ? Math.max(...items.value.map((i) => i.sortNo)) + 1 : 1
   form.bgColor = defaultBgColor.value
+  form.arcNameLen = 4
+  form.arcNamePreStr = ''
   form.memo = ''
   formError.value = ''
   modalVisible.value = true
@@ -143,6 +149,8 @@ const openEdit = (row: BatInfoRow): void => {
   form.status = row.status
   form.sortNo = row.sortNo
   form.bgColor = row.bgColor || '#FFFFFF'
+  form.arcNameLen = row.arcNameLen ?? 4
+  form.arcNamePreStr = row.arcNamePreStr ?? ''
   form.memo = row.memo
   formError.value = ''
   modalVisible.value = true
@@ -161,6 +169,8 @@ const submitForm = async (): Promise<void> => {
       status: form.status,
       sortNo: form.sortNo,
       bgColor: form.bgColor,
+      arcNameLen: form.arcNameLen,
+      arcNamePreStr: form.arcNamePreStr.trim(),
       memo: form.memo.trim()
     }
     const result = editing.value
@@ -226,6 +236,8 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
                 <th>批次编号</th>
                 <th>档案类型</th>
                 <th>档案数</th>
+                <th>名称位数</th>
+                <th>名称前缀</th>
                 <th>建立时间</th>
                 <th>状态</th>
                 <th>排序号</th>
@@ -243,6 +255,8 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
                   <strong>{{ row.arcTypeName }}</strong>
                 </td>
                 <td class="mono-cell">{{ row.arcCount }}</td>
+                <td class="mono-cell">{{ row.arcNameLen }}</td>
+                <td class="mono-cell">{{ row.arcNamePreStr || '—' }}</td>
                 <td class="time-cell">{{ formatTime(row.timeOfCreate) }}</td>
                 <td>
                   <span class="tag" :class="row.status === 1 ? 'tag-success' : 'tag-neutral'">
@@ -403,6 +417,30 @@ const removeItem = async (row: BatInfoRow): Promise<void> => {
               <span class="color-value">{{ form.bgColor }}</span>
             </div>
             <p v-if="!editing" class="form-hint">默认取系统设置中的默认底色。</p>
+          </div>
+          <div class="form-item modal-gap">
+            <label class="form-label" for="bat-arc-name-len">档案名称位数</label>
+            <input
+              id="bat-arc-name-len"
+              v-model.number="form.arcNameLen"
+              class="input"
+              type="number"
+              min="1"
+              max="20"
+            />
+            <p class="form-hint">新增档案时自动编号的补零位数，默认 4 位（如 0001）。</p>
+          </div>
+          <div class="form-item modal-gap">
+            <label class="form-label" for="bat-arc-name-pre-str">档案名称前缀</label>
+            <input
+              id="bat-arc-name-pre-str"
+              v-model="form.arcNamePreStr"
+              class="input"
+              type="text"
+              maxlength="30"
+              placeholder="可选：导出时拼接在档案名称前"
+            />
+            <p class="form-hint">导出 PDF / Excel 时，会拼在档案名称前作为文件名或名称列值。</p>
           </div>
           <div class="form-item modal-gap">
             <label class="form-label" for="bat-memo">备注</label>

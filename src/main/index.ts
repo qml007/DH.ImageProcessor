@@ -86,10 +86,7 @@ const reportMainProcessError = (error: unknown): void => {
 
   try {
     const message = error instanceof Error ? error.message : String(error)
-    dialog.showErrorBox(
-      '程序异常',
-      `操作过程中出现异常，当前任务已中断，请重试。\n\n${message}`
-    )
+    dialog.showErrorBox('程序异常', `操作过程中出现异常，当前任务已中断，请重试。\n\n${message}`)
   } catch (dialogError) {
     console.error('Failed to show error dialog:', dialogError)
   } finally {
@@ -854,9 +851,14 @@ app.whenReady().then(() => {
 
       void (async (): Promise<void> => {
         try {
-          await streamChatCompletion(setting, payload.messages ?? [], controller.signal, (delta) => {
-            send('delta', { delta })
-          })
+          await streamChatCompletion(
+            setting,
+            payload.messages ?? [],
+            controller.signal,
+            (delta) => {
+              send('delta', { delta })
+            }
+          )
           send('done', {})
         } catch (error) {
           if (controller.signal.aborted) {
@@ -1071,6 +1073,8 @@ app.whenReady().then(() => {
         status?: number
         sortNo?: number
         bgColor?: string
+        arcNameLen?: number
+        arcNamePreStr?: string
         memo?: string
       }
     ) => {
@@ -1082,6 +1086,8 @@ app.whenReady().then(() => {
             status: payload.status,
             sortNo: payload.sortNo,
             bgColor: payload.bgColor,
+            arcNameLen: payload.arcNameLen,
+            arcNamePreStr: payload.arcNamePreStr,
             memo: payload.memo
           })
         }
@@ -1101,6 +1107,8 @@ app.whenReady().then(() => {
         status?: number
         sortNo?: number
         bgColor?: string
+        arcNameLen?: number
+        arcNamePreStr?: string
         memo?: string
       }
     ) => {
@@ -1112,6 +1120,8 @@ app.whenReady().then(() => {
             status: payload.status,
             sortNo: payload.sortNo,
             bgColor: payload.bgColor,
+            arcNameLen: payload.arcNameLen,
+            arcNamePreStr: payload.arcNamePreStr,
             memo: payload.memo
           })
         }
@@ -1744,51 +1754,49 @@ app.whenReady().then(() => {
   })
 
   // 导出当前批次全部档案的 Excel（每个档案一行，档案名称 + 批次字段）
-  ipcMain.handle(
-    'excel:export-archives',
-    async (event, payload: ArchiveExcelExportPayload) => {
-      try {
-        const batch = getBatInfo(payload.batId)
-        if (!batch) return { ok: false, message: '批次不存在' }
+  ipcMain.handle('excel:export-archives', async (event, payload: ArchiveExcelExportPayload) => {
+    try {
+      const batch = getBatInfo(payload.batId)
+      if (!batch) return { ok: false, message: '批次不存在' }
 
-        const archives = listArcInfo(payload.batId)
-        if (!archives.length) return { ok: false, message: '当前批次没有档案' }
+      const archives = listArcInfo(payload.batId)
+      if (!archives.length) return { ok: false, message: '当前批次没有档案' }
 
-        const fields = listBatArcFieldInfo(payload.batId)
-        const headers = ['档案名称', ...fields.map((field) => field.fieldName)]
-        const rows = archives.map((archive) => {
-          const valueMap = new Map(
-            listArcFieldValue(archive.arcId).map((item) => [item.batFieldId, item.fieldValue])
-          )
-          return [archive.arcName, ...fields.map((field) => valueMap.get(field.id) ?? '')]
-        })
+      const fields = listBatArcFieldInfo(payload.batId)
+      const headers = ['档案名称', ...fields.map((field) => field.fieldName)]
+      const rows = archives.map((archive) => {
+        const valueMap = new Map(
+          listArcFieldValue(archive.arcId).map((item) => [item.batFieldId, item.fieldValue])
+        )
+        const displayName = `${batch.arcNamePreStr ?? ''}${archive.arcName}`
+        return [displayName, ...fields.map((field) => valueMap.get(field.id) ?? '')]
+      })
 
-        const win = BrowserWindow.fromWebContents(event.sender)
-        const options: Electron.SaveDialogOptions = {
-          title: '导出 Excel',
-          defaultPath: `${batch.batCode || '档案信息'}.xlsx`,
-          filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
-        }
-        const result = win
-          ? await dialog.showSaveDialog(win, options)
-          : await dialog.showSaveDialog(options)
-
-        if (result.canceled || !result.filePath) {
-          return { ok: false, canceled: true }
-        }
-
-        const filePath = /\.xlsx$/i.test(result.filePath)
-          ? result.filePath
-          : `${result.filePath}.xlsx`
-
-        await writeArchivesExcel(filePath, headers, rows)
-        return { ok: true, filePath, count: archives.length }
-      } catch (error) {
-        console.error('Failed to export archives to Excel:', error)
-        return { ok: false, message: '导出 Excel 失败，请稍后重试' }
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.SaveDialogOptions = {
+        title: '导出 Excel',
+        defaultPath: `${batch.batCode || '档案信息'}.xlsx`,
+        filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
       }
+      const result = win
+        ? await dialog.showSaveDialog(win, options)
+        : await dialog.showSaveDialog(options)
+
+      if (result.canceled || !result.filePath) {
+        return { ok: false, canceled: true }
+      }
+
+      const filePath = /\.xlsx$/i.test(result.filePath)
+        ? result.filePath
+        : `${result.filePath}.xlsx`
+
+      await writeArchivesExcel(filePath, headers, rows)
+      return { ok: true, filePath, count: archives.length }
+    } catch (error) {
+      console.error('Failed to export archives to Excel:', error)
+      return { ok: false, message: '导出 Excel 失败，请稍后重试' }
     }
-  )
+  })
 
   // Read the persisted application settings
   ipcMain.handle('settings:get', async () => {
@@ -1870,10 +1878,7 @@ app.whenReady().then(() => {
   // 返回相对临时目录的路径（写入数据库的就是这个相对路径）
   ipcMain.handle(
     'image:save-temp',
-    async (
-      _event,
-      payload: { arcId: string; imageId: string; seqNo: number; dataUrl: string }
-    ) => {
+    async (_event, payload: { arcId: string; imageId: string; seqNo: number; dataUrl: string }) => {
       try {
         const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(payload.dataUrl)
         if (!match) return { ok: false, message: '图片数据格式无效' }
@@ -1928,9 +1933,7 @@ app.whenReady().then(() => {
         const isDark = (x: number, y: number): boolean => {
           const i = (y * width + x) * channels
           const luminance =
-            channels >= 3
-              ? 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-              : data[i]
+            channels >= 3 ? 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] : data[i]
           return luminance <= BORDER_DARK_THRESHOLD
         }
 
