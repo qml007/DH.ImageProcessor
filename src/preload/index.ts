@@ -25,6 +25,8 @@ const api = {
   deleteTempImages: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:delete-temp', payload),
   selectPdfFolder: (): Promise<unknown> => ipcRenderer.invoke('pdf:select-folder'),
+  openPdfFolder: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('pdf:open-folder', payload),
   exportPdf: (payload: unknown): Promise<unknown> => ipcRenderer.invoke('pdf:export', payload),
   exportArchiveExcel: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('excel:export-archives', payload),

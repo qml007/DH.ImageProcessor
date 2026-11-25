@@ -149,6 +149,15 @@ export interface SelectPdfFolderResult {
   dir: string
 }
 
+export interface OpenPdfFolderPayload {
+  dir: string
+}
+
+export interface OpenPdfFolderResult {
+  ok: boolean
+  message?: string
+}
+
 export interface PdfExportArchive {
   name: string
   images: string[]
@@ -897,6 +906,7 @@ export interface RendererApi {
   cleanImageBorder: (payload: CleanImageBorderPayload) => Promise<CleanImageBorderResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
+  openPdfFolder: (payload: OpenPdfFolderPayload) => Promise<OpenPdfFolderResult>
   exportPdf: (payload: PdfExportPayload) => Promise<PdfExportResult>
   exportArchiveExcel: (payload: ArchiveExcelExportPayload) => Promise<ArchiveExcelExportResult>
   getDatabaseInfo: () => Promise<DatabaseInfoResult>

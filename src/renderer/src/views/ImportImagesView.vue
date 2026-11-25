@@ -135,6 +135,7 @@ const exportState = reactive({
   current: '',
   images: 0,
   failed: 0,
+  exported: 0,
   message: '',
   dir: '',
   failures: [] as PdfExportFailure[]
@@ -467,6 +468,7 @@ const exportPdf = async (dir: string, doubleLayer: boolean): Promise<void> => {
     current: '',
     images: 0,
     failed: 0,
+    exported: 0,
     message: '',
     dir,
     failures: []
@@ -513,6 +515,7 @@ const exportPdf = async (dir: string, doubleLayer: boolean): Promise<void> => {
     exportState.done = result.done
     exportState.remaining = Math.max(result.total - result.done, 0)
     exportState.failed = failed
+    exportState.exported = exported
     exportState.failures = finalResults
       .filter((item) => !item.ok)
       .map((item) => ({ name: item.name, message: item.message || '导出失败' }))
@@ -539,6 +542,19 @@ const exportPdf = async (dir: string, doubleLayer: boolean): Promise<void> => {
 const closeExportModal = (): void => {
   if (exporting.value) return
   exportState.visible = false
+}
+
+const openExportFolder = async (): Promise<void> => {
+  const dir = exportState.dir
+  if (!dir) return
+
+  try {
+    const result = await window.api.openPdfFolder({ dir })
+    if (!result.ok) flashMessage(result.message || '无法打开导出文件夹')
+  } catch (error) {
+    console.error(error)
+    flashMessage('无法打开导出文件夹')
+  }
 }
 
 const exportExcel = async (): Promise<void> => {
@@ -1366,7 +1382,15 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
           </li>
         </ul>
 
-        <div class="export-foot">
+        <div class="export-foot export-foot-actions">
+          <button
+            v-if="exportState.finished && exportState.exported > 0 && exportState.dir"
+            class="btn btn-sm btn-primary"
+            type="button"
+            @click="openExportFolder"
+          >
+            打开
+          </button>
           <button
             class="btn btn-sm"
             type="button"

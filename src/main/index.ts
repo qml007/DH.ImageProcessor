@@ -1586,6 +1586,23 @@ app.whenReady().then(() => {
     return { canceled: false, dir: result.filePaths[0] }
   })
 
+  // Open the PDF output folder in the system file explorer
+  ipcMain.handle('pdf:open-folder', async (_event, payload: { dir: string }) => {
+    const dir = payload?.dir?.trim()
+    if (!dir) return { ok: false, message: '导出文件夹路径无效' }
+
+    try {
+      const info = await stat(dir)
+      if (!info.isDirectory()) return { ok: false, message: '导出文件夹不存在' }
+
+      const error = await shell.openPath(dir)
+      return { ok: !error, message: error }
+    } catch (error) {
+      console.error('Failed to open PDF output folder:', dir, error)
+      return { ok: false, message: '无法打开导出文件夹' }
+    }
+  })
+
   // Render every archive into its own PDF file (no page margins) and report progress
   ipcMain.handle('pdf:export', async (event, payload: PdfExportPayload) => {
     const sender = event.sender
