@@ -763,6 +763,7 @@ const deleteArchive = async (): Promise<void> => {
 const startRenameArchive = (archive: Archive): void => {
   editingArchiveId.value = archive.id
   editingArchiveName.value = archive.name
+  shouldSelectOnFocus = true
 }
 
 const cancelRenameArchive = (): void => {
@@ -796,12 +797,17 @@ const confirmRenameArchive = async (): Promise<void> => {
   flashMessage(`已重命名为「${name}」`)
 }
 
+// 函数型 ref 在每次组件重渲染时都会调用；用标志位确保 select() 只在首次进入编辑时执行一次
+let shouldSelectOnFocus = false
 const setRenameInput = (el: unknown): void => {
   const input = (el as HTMLInputElement | null) ?? null
   if (!input) return
 
   input.focus()
-  input.select()
+  if (shouldSelectOnFocus) {
+    input.select()
+    shouldSelectOnFocus = false
+  }
 }
 
 const onImageDragStart = (event: DragEvent, item: EditableImage): void => {
