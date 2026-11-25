@@ -1187,14 +1187,16 @@ const onArchiveDrop = async (archiveId: string, event: DragEvent): Promise<void>
               共 {{ images.length }} 张 · {{ formatSize(totalSize) }}
             </span>
           </div>
-          <span v-if="pdfProgress" class="tag tag-primary">{{ pdfProgress }}</span>
-          <span v-else-if="markAnchorId" class="tag tag-warning">
-            已标记起点 · 点击结束图像后按 F8 归档
-          </span>
-          <span v-else-if="selectedIds.length" class="tag tag-primary">
-            已选 {{ selectedIds.length }} 张 · 拖到左侧档案可移动
-          </span>
-          <span v-else-if="message" class="tag tag-success">{{ message }}</span>
+          <span v-if="message" class="tag tag-success">{{ message }}</span>
+          <template v-else>
+            <span v-if="pdfProgress" class="tag tag-primary">{{ pdfProgress }}</span>
+            <span v-else-if="markAnchorId" class="tag tag-warning">
+              已标记起点 · 点击结束图像后按 F8 归档
+            </span>
+            <span v-else-if="selectedIds.length" class="tag tag-primary">
+              已选 {{ selectedIds.length }} 张 · 拖到左侧档案可移动
+            </span>
+          </template>
         </div>
 
         <div v-if="!images.length" class="empty-state">
