@@ -52,6 +52,12 @@ const router = createRouter({
           meta: { title: 'AI服务' }
         },
         {
+          path: 'hotkey-settings',
+          name: 'hotkey-settings',
+          component: () => import('../views/HotKeySettingView.vue'),
+          meta: { title: '自定义快捷键' }
+        },
+        {
           path: 'archives-types/:typeId/fields',
           name: 'archives-type-fields',
           component: () => import('../views/ArchivesFieldsView.vue'),

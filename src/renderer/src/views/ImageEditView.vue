@@ -12,7 +12,10 @@ import {
   watch
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import hotkeys from 'hotkeys-js'
 import { imageStore, type EditableImage } from '../stores/imageStore'
+import { hotkeyStore } from '../stores/hotkeyStore'
+import { IMG_PROC_CATEGORY, acceleratorToHotkeysJs } from '../utils/hotkeys'
 import { formatSize } from '../utils/format'
 import { markTabReplace } from '../utils/tabs'
 import {
@@ -1053,8 +1056,55 @@ const unbindKeydown = (): void => {
   window.removeEventListener('keydown', handleKeydown)
 }
 
+const HOTKEY_SCOPE = 'image-edit'
+
+const hotkeysActive = ref(false)
+
+const registerActionHotkeys = (): void => {
+  hotkeys.deleteScope(HOTKEY_SCOPE, HOTKEY_SCOPE)
+
+  const bindings = hotkeyStore.bindingsOf(IMG_PROC_CATEGORY)
+
+  for (const action of actions) {
+    const accelerator = bindings[action.key]
+    if (!accelerator) continue
+
+    const combo = acceleratorToHotkeysJs(accelerator)
+    if (!combo) continue
+
+    hotkeys(combo, { scope: HOTKEY_SCOPE }, (event) => {
+      if (!image.value || isActionDisabled(action.key)) return
+      event.preventDefault()
+      handleAction(action)
+    })
+  }
+
+  hotkeys.setScope(HOTKEY_SCOPE)
+}
+
+const activateHotkeys = async (): Promise<void> => {
+  hotkeysActive.value = true
+  await hotkeyStore.load()
+  if (!hotkeysActive.value) return
+  registerActionHotkeys()
+}
+
+const deactivateHotkeys = (): void => {
+  hotkeysActive.value = false
+  hotkeys.deleteScope(HOTKEY_SCOPE)
+  hotkeys.setScope('all')
+}
+
+watch(
+  () => hotkeyStore.state.revision,
+  () => {
+    if (hotkeysActive.value) registerActionHotkeys()
+  }
+)
+
 onMounted(() => {
   bindKeydown()
+  void activateHotkeys()
   void imageStore.ensureImageData(String(route.params.id))
   void loadArchiveFields()
   void loadBatchInfo()
@@ -1068,6 +1118,7 @@ onMounted(() => {
 // 作为标签页被缓存时：失活解绑全局快捷键，重新激活后恢复并同步档案状态
 onActivated(() => {
   bindKeydown()
+  void activateHotkeys()
   const target = image.value
   if (target?.arcId) imageStore.selectArchive(target.arcId)
   void imageStore.ensureImageData(String(route.params.id))
@@ -1080,11 +1131,13 @@ onActivated(() => {
 
 onDeactivated(() => {
   unbindKeydown()
+  deactivateHotkeys()
   void flushArchiveFields()
 })
 
 onUnmounted(() => {
   unbindKeydown()
+  deactivateHotkeys()
   void flushArchiveFields()
   stageObserver?.disconnect()
   stageObserver = null

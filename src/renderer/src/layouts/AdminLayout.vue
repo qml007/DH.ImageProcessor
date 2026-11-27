@@ -96,6 +96,11 @@ const menuGroups: MenuGroup[] = [
           'M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z',
           'M5 15l.7 1.8L7.5 17.5 5.7 18.2 5 20l-.7-1.8L2.5 17.5l1.8-.7z'
         ]
+      },
+      {
+        path: '/hotkey-settings',
+        label: '自定义快捷键',
+        icon: ['M3 7h18v10H3z', 'M7 11h.01', 'M10.5 11h.01', 'M14 11h.01', 'M17 11h.01', 'M7 14h10']
       }
     ]
   }
@@ -133,6 +138,7 @@ const routeViewNames: Record<string, string> = {
   'archives-types': 'ArchivesTypeView',
   'archives-type-fields': 'ArchivesFieldsView',
   'ai-services': 'AIServiceView',
+  'hotkey-settings': 'HotKeySettingView',
   batches: 'BatInfoView',
   'batch-fields': 'BatFieldsView',
   'ai-chat': 'AIChatView'
