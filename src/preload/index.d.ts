@@ -144,6 +144,57 @@ export interface ImageBitDepthResult {
   message?: string
 }
 
+export interface SystemFontStyleInfo {
+  /** 字面唯一标识（PostScript 名） */
+  postscriptName: string
+  subfamily: string
+  bold: boolean
+  italic: boolean
+}
+
+export interface SystemFontFamilyInfo {
+  /** 字体族标识，用于渲染与保存选择结果 */
+  id: string
+  family: string
+  /** 界面展示名，优先中文本地化名 */
+  displayName: string
+  /** 是否包含常用中文字形 */
+  cjk: boolean
+  hasBold: boolean
+  hasItalic: boolean
+  styles: SystemFontStyleInfo[]
+}
+
+export interface SystemFontListResult {
+  ok: boolean
+  families?: SystemFontFamilyInfo[]
+  defaultId?: string
+  message?: string
+}
+
+export interface ComposePageNumberPayload {
+  dataUrl: string
+  text: string
+  family: string
+  bold?: boolean
+  italic?: boolean
+  /** 字号，以图片原始像素为单位 */
+  sizePx: number
+  /** #RRGGBB */
+  color: string
+  direction?: 'horizontal' | 'vertical'
+  /** 相对图像宽高的比例（0~1），对应文本包围盒中心 */
+  anchorX: number
+  anchorY: number
+}
+
+export interface ComposePageNumberResult {
+  ok: boolean
+  /** 合成后的 PNG data URL（尺寸不变） */
+  dataUrl?: string
+  message?: string
+}
+
 export interface SelectPdfFolderResult {
   canceled: boolean
   dir: string
@@ -904,6 +955,8 @@ export interface RendererApi {
   readTempImage: (payload: ReadTempImagePayload) => Promise<ReadTempImageResult>
   getImageBitDepth: (payload: ImageBitDepthPayload) => Promise<ImageBitDepthResult>
   cleanImageBorder: (payload: CleanImageBorderPayload) => Promise<CleanImageBorderResult>
+  listSystemFonts: (payload?: { refresh?: boolean }) => Promise<SystemFontListResult>
+  composePageNumber: (payload: ComposePageNumberPayload) => Promise<ComposePageNumberResult>
   deleteTempImages: (payload: DeleteTempImagesPayload) => Promise<DeleteTempImagesResult>
   selectPdfFolder: () => Promise<SelectPdfFolderResult>
   openPdfFolder: (payload: OpenPdfFolderPayload) => Promise<OpenPdfFolderResult>

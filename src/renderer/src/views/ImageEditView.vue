@@ -36,6 +36,7 @@ import {
   type FlipDirection,
   type RotationAngle
 } from '../utils/image'
+import type { SystemFontFamilyInfo } from '../../../preload/index.d'
 
 const COLOR_TOLERANCE = 60
 const MIN_SELECTION_PX = 4
@@ -202,6 +203,13 @@ const actions: EditAction[] = [
     desc: '加黑并锐化图片中的文字',
     variant: 'default',
     icon: ['M12 2 3 20h18z', 'M12 8v5', 'M12 16v.01']
+  },
+  {
+    key: 'page-number',
+    label: '插入页码',
+    desc: '在图片任意位置添加自定义页码',
+    variant: 'default',
+    icon: ['M6 3h12v18H6z', 'M12 8v8', 'M9.5 10 12 8']
   }
 ]
 
@@ -229,6 +237,278 @@ const manualMode = ref(false)
 const lineDrawing = ref(false)
 const linePoints = ref<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
 let lineOrigin: { x: number; y: number } | null = null
+
+// ---------- 插入页码 ----------
+interface PageNumberSettings {
+  text: string
+  family: string
+  bold: boolean
+  italic: boolean
+  sizePx: number
+  color: string
+  direction: 'horizontal' | 'vertical'
+}
+
+const PAGE_NUMBER_MIN_SIZE = 6
+const PAGE_NUMBER_MAX_SIZE = 400
+const PAGE_NUMBER_DEFAULT_SIZE = 48
+const PAGE_NUMBER_DEFAULT_COLOR = '#000000'
+// 默认落在图片右下角（按文本中心点定位）
+const PAGE_NUMBER_DEFAULT_ANCHOR = { x: 0.88, y: 0.92 }
+
+const pageNumberMode = ref(false)
+const pageNumberMoving = ref(false)
+const pageNumberAnchor = ref<{ x: number; y: number } | null>(null)
+const pageNumberCardOpen = ref(false)
+const pageNumberSettings = reactive<PageNumberSettings>({
+  text: '',
+  family: '',
+  bold: false,
+  italic: false,
+  sizePx: PAGE_NUMBER_DEFAULT_SIZE,
+  color: PAGE_NUMBER_DEFAULT_COLOR,
+  direction: 'horizontal'
+})
+
+const systemFonts = ref<SystemFontFamilyInfo[]>([])
+const fontsLoading = ref(false)
+const fontsLoaded = ref(false)
+const fontKeyword = ref('')
+const fontListOpen = ref(false)
+let fontsRequest: Promise<void> | null = null
+
+const currentFont = computed(() =>
+  systemFonts.value.find((item) => item.id === pageNumberSettings.family)
+)
+
+const filteredFonts = computed(() => {
+  const keyword = fontKeyword.value.trim().toLowerCase()
+  if (!keyword) return systemFonts.value
+
+  return systemFonts.value.filter(
+    (item) =>
+      item.displayName.toLowerCase().includes(keyword) ||
+      item.family.toLowerCase().includes(keyword)
+  )
+})
+
+/** 图片原始像素到当前显示像素的换算比例，用于预览字号 */
+const pageNumberScale = computed(() => fitScale.value * (zoom.value / 100))
+
+/** CSS 字体族名统一加引号，避免含空格或特殊字符时解析失败 */
+const fontFamilyCss = (family: string): string => (family ? `"${family}"` : 'inherit')
+
+const pageNumberPreviewText = computed(() => pageNumberSettings.text.trim() || '页码')
+
+const pageNumberPreviewStyle = computed(() => {
+  const anchor = pageNumberAnchor.value
+  if (!anchor) return null
+
+  const family = currentFont.value?.family ?? pageNumberSettings.family
+  const rotate = pageNumberSettings.direction === 'vertical' ? ' rotate(90deg)' : ''
+  const sizePx = Number(pageNumberSettings.sizePx) || PAGE_NUMBER_DEFAULT_SIZE
+
+  return {
+    left: `${anchor.x * 100}%`,
+    top: `${anchor.y * 100}%`,
+    fontFamily: fontFamilyCss(family),
+    fontSize: `${Math.max(2, sizePx * pageNumberScale.value)}px`,
+    fontWeight: pageNumberSettings.bold ? '700' : '400',
+    fontStyle: pageNumberSettings.italic ? 'italic' : 'normal',
+    color: pageNumberSettings.color,
+    transform: `translate(-50%, -50%)${rotate}`
+  }
+})
+
+const loadSystemFonts = async (): Promise<void> => {
+  if (fontsLoaded.value) return
+  if (fontsRequest) return fontsRequest
+
+  fontsLoading.value = true
+
+  fontsRequest = (async (): Promise<void> => {
+    try {
+      const result = await window.api.listSystemFonts()
+      if (!result.ok || !result.families?.length) {
+        flashNotice(result.message || '读取系统字体失败')
+        return
+      }
+
+      systemFonts.value = result.families
+      fontsLoaded.value = true
+
+      const stillValid = result.families.some((item) => item.id === pageNumberSettings.family)
+      if (!stillValid) {
+        pageNumberSettings.family = result.defaultId || result.families[0].id
+      }
+    } catch (error) {
+      console.error(error)
+      flashNotice('读取系统字体失败')
+    } finally {
+      fontsLoading.value = false
+      fontsRequest = null
+    }
+  })()
+
+  return fontsRequest
+}
+
+const updatePageNumberAnchor = (event: MouseEvent): void => {
+  if (!pageNumberMoving.value) return
+  const point = pointInFrame(event)
+  if (point) pageNumberAnchor.value = point
+}
+
+const endPageNumberMove = (): void => {
+  pageNumberMoving.value = false
+  window.removeEventListener('mousemove', updatePageNumberAnchor)
+  window.removeEventListener('mouseup', endPageNumberMove)
+}
+
+const startPageNumberMove = (event: MouseEvent): void => {
+  if (!pageNumberMode.value || processing.value || event.button !== 0) return
+
+  const point = pointInFrame(event)
+  if (!point) return
+
+  event.preventDefault()
+  pageNumberAnchor.value = point
+  pageNumberMoving.value = true
+  window.addEventListener('mousemove', updatePageNumberAnchor)
+  window.addEventListener('mouseup', endPageNumberMove)
+}
+
+const cancelPageNumber = (): void => {
+  pageNumberMode.value = false
+  pageNumberAnchor.value = null
+  pageNumberCardOpen.value = false
+  pageNumberMoving.value = false
+  fontListOpen.value = false
+  fontKeyword.value = ''
+  window.removeEventListener('mousemove', updatePageNumberAnchor)
+  window.removeEventListener('mouseup', endPageNumberMove)
+}
+
+const openPageNumber = (): void => {
+  if (processing.value) return
+
+  if (pageNumberMode.value) {
+    cancelPageNumber()
+    return
+  }
+
+  if (picking.value) cancelPick()
+  if (manualMode.value) cancelManual()
+  clearSelection()
+
+  pageNumberMode.value = true
+  pageNumberAnchor.value = { ...PAGE_NUMBER_DEFAULT_ANCHOR }
+  pageNumberCardOpen.value = true
+
+  if (!pageNumberSettings.text) {
+    pageNumberSettings.text = String(Math.max(1, currentIndex.value + 1))
+  }
+
+  void loadSystemFonts()
+}
+
+const toggleFontList = (): void => {
+  fontListOpen.value = !fontListOpen.value
+  if (fontListOpen.value) fontKeyword.value = ''
+}
+
+const selectFont = (item: SystemFontFamilyInfo): void => {
+  pageNumberSettings.family = item.id
+  fontListOpen.value = false
+  fontKeyword.value = ''
+
+  // 新字体不支持粗体/斜体时，自动取消对应字形，避免出现伪样式
+  if (!item.hasBold) pageNumberSettings.bold = false
+  if (!item.hasItalic) pageNumberSettings.italic = false
+}
+
+const toggleBold = (): void => {
+  if (!currentFont.value?.hasBold) {
+    flashNotice('所选字体没有粗体字形，无法启用粗体')
+    return
+  }
+  pageNumberSettings.bold = !pageNumberSettings.bold
+}
+
+const toggleItalic = (): void => {
+  if (!currentFont.value?.hasItalic) {
+    flashNotice('所选字体没有斜体字形，无法启用斜体')
+    return
+  }
+  pageNumberSettings.italic = !pageNumberSettings.italic
+}
+
+const setPageNumberDirection = (direction: 'horizontal' | 'vertical'): void => {
+  pageNumberSettings.direction = direction
+}
+
+const applyPageNumber = async (): Promise<void> => {
+  const target = image.value
+  const anchor = pageNumberAnchor.value
+
+  if (!target || processing.value || !pageNumberMode.value) return
+
+  const text = pageNumberSettings.text.trim()
+  if (!text) {
+    flashNotice('请输入页码内容')
+    return
+  }
+
+  if (!pageNumberSettings.family) {
+    flashNotice('请选择页码字体')
+    return
+  }
+
+  if (!anchor) {
+    flashNotice('请先在图片上点击确定页码位置')
+    return
+  }
+
+  const sizePx = Number(pageNumberSettings.sizePx)
+  if (
+    !Number.isFinite(sizePx) ||
+    sizePx < PAGE_NUMBER_MIN_SIZE ||
+    sizePx > PAGE_NUMBER_MAX_SIZE
+  ) {
+    flashNotice(`字号需在 ${PAGE_NUMBER_MIN_SIZE}~${PAGE_NUMBER_MAX_SIZE} 像素之间`)
+    return
+  }
+
+  processing.value = true
+  try {
+    const result = await window.api.composePageNumber({
+      dataUrl: target.dataUrl,
+      text,
+      family: pageNumberSettings.family,
+      bold: pageNumberSettings.bold,
+      italic: pageNumberSettings.italic,
+      sizePx,
+      color: pageNumberSettings.color,
+      direction: pageNumberSettings.direction,
+      anchorX: anchor.x,
+      anchorY: anchor.y
+    })
+
+    if (!result.ok || !result.dataUrl) {
+      flashNotice(result.message || '插入页码失败，请稍后重试')
+      return
+    }
+
+    const done = await persistState(target, result.dataUrl, target.rotation, '插入页码')
+    cancelPageNumber()
+    flashNotice(done ? '已插入页码，结果已保存到临时文件夹' : '写入临时文件夹失败，页码未生效')
+  } catch (error) {
+    console.error(error)
+    flashNotice('插入页码失败，请稍后重试')
+  } finally {
+    processing.value = false
+  }
+}
 
 const hasSelection = computed(() => {
   const current = selection.value
@@ -498,6 +778,11 @@ const endSelect = (event: MouseEvent): void => {
 }
 
 const startSelect = (event: MouseEvent): void => {
+  if (pageNumberMode.value) {
+    startPageNumberMove(event)
+    return
+  }
+
   if (manualMode.value) {
     startLine(event)
     return
@@ -816,6 +1101,7 @@ const handleKeydown = (event: KeyboardEvent): void => {
   if (event.key === 'Escape') {
     if (manualMode.value) cancelManual()
     else if (picking.value) cancelPick()
+    else if (pageNumberMode.value) cancelPageNumber()
     else if (ocrFieldId.value) cancelOcrField()
     else if (hasSelection.value) clearSelection()
     return
@@ -1155,6 +1441,7 @@ watch(
   () => {
     if (picking.value) cancelPick()
     if (manualMode.value) cancelManual()
+    if (pageNumberMode.value) cancelPageNumber()
     clearSelection()
     void imageStore.ensureImageData(String(route.params.id))
   }
@@ -1174,6 +1461,7 @@ watch(
   () => {
     clearSelection()
     if (manualMode.value) cancelManual()
+    if (pageNumberMode.value) cancelPageNumber()
     void refreshBitDepth()
     void nextTick(syncResolution)
   }
@@ -1665,6 +1953,9 @@ const applyCenterSelection = async (): Promise<void> => {
 const isActionDisabled = (key: string): boolean => {
   if (processing.value) return true
 
+  // 页码按钮始终可用，便于随时退出页码模式
+  if (key === 'page-number') return false
+
   if (manualMode.value && key !== 'manual-correct') return true
 
   if (key === 'discard' || key === 'keep' || key === 'keep-center') {
@@ -1679,6 +1970,10 @@ const actionDesc = (action: EditAction): string => {
     return manualMode.value ? '在图片上按住左键拖出直线，松开即校正' : action.desc
   }
 
+  if (action.key === 'page-number') {
+    return pageNumberMode.value ? '在图片上点击或拖拽调整页码位置' : action.desc
+  }
+
   if (action.key !== 'discard' && action.key !== 'keep' && action.key !== 'keep-center') {
     return action.desc
   }
@@ -1688,6 +1983,13 @@ const actionDesc = (action: EditAction): string => {
 }
 
 const handleAction = (action: EditAction): void => {
+  if (action.key !== 'page-number' && pageNumberMode.value) cancelPageNumber()
+
+  if (action.key === 'page-number') {
+    openPageNumber()
+    return
+  }
+
   if (action.key === 'rotate-left') {
     void rotate(-90)
     return
@@ -1818,7 +2120,8 @@ const handleAction = (action: EditAction): void => {
                 {
                   'is-active':
                     (picking && action.key === 'remove-color') ||
-                    (manualMode && action.key === 'manual-correct')
+                    (manualMode && action.key === 'manual-correct') ||
+                    (pageNumberMode && action.key === 'page-number')
                 }
               ]"
               type="button"
@@ -1929,7 +2232,7 @@ const handleAction = (action: EditAction): void => {
           <div
             ref="stageRef"
             class="canvas-stage"
-            :class="{ picking, manual: manualMode }"
+            :class="{ picking, manual: manualMode, 'page-numbering': pageNumberMode }"
             @wheel="handleWheel"
           >
             <div class="stage-viewport">
@@ -1969,6 +2272,23 @@ const handleAction = (action: EditAction): void => {
                 >
                   <span v-if="dragging" class="selection-size">{{ selectionSize }}</span>
                 </div>
+
+                <div
+                  v-if="pageNumberMode && pageNumberPreviewStyle"
+                  class="page-number-preview"
+                  :style="pageNumberPreviewStyle"
+                >
+                  {{ pageNumberPreviewText }}
+                </div>
+
+                <div
+                  v-if="pageNumberMode && pageNumberAnchor"
+                  class="page-number-anchor"
+                  :style="{
+                    left: `${pageNumberAnchor.x * 100}%`,
+                    top: `${pageNumberAnchor.y * 100}%`
+                  }"
+                ></div>
               </div>
             </div>
 
@@ -2002,6 +2322,167 @@ const handleAction = (action: EditAction): void => {
               <div class="color-values">
                 <strong>{{ hoverHex }}</strong>
                 <em>{{ hoverRgb }}</em>
+              </div>
+            </div>
+
+            <div v-if="pageNumberMode && pageNumberCardOpen" class="page-number-card">
+              <div class="page-number-head">
+                <strong>插入页码</strong>
+                <button class="close-btn" type="button" @click="cancelPageNumber">×</button>
+              </div>
+
+              <p class="page-number-tip">在图片上点击或拖拽可调整页码位置</p>
+
+              <label class="page-number-field">
+                <span>页码内容</span>
+                <input
+                  v-model="pageNumberSettings.text"
+                  class="input"
+                  type="text"
+                  maxlength="64"
+                  placeholder="请输入页码"
+                />
+              </label>
+
+              <div class="page-number-field">
+                <span>字体</span>
+                <div class="font-select">
+                  <button
+                    class="font-trigger"
+                    type="button"
+                    :style="{ fontFamily: fontFamilyCss(currentFont?.family ?? '') }"
+                    :disabled="fontsLoading"
+                    @click="toggleFontList"
+                  >
+                    <span class="font-trigger-name">
+                      {{
+                        fontsLoading
+                          ? '正在读取系统字体…'
+                          : currentFont
+                            ? currentFont.displayName
+                            : '请选择字体'
+                      }}
+                    </span>
+                    <em class="font-trigger-arrow">{{ fontListOpen ? '▲' : '▼' }}</em>
+                  </button>
+
+                  <div v-if="fontListOpen" class="font-panel">
+                    <input
+                      v-model="fontKeyword"
+                      class="input font-search"
+                      type="search"
+                      placeholder="搜索字体名称"
+                    />
+                    <div v-if="fontsLoading" class="font-empty">正在读取系统字体…</div>
+                    <div v-else-if="!filteredFonts.length" class="font-empty">未找到匹配字体</div>
+                    <div v-else class="font-list">
+                      <button
+                        v-for="font in filteredFonts"
+                        :key="font.id"
+                        class="font-option"
+                        :class="{ 'is-selected': font.id === pageNumberSettings.family }"
+                        type="button"
+                        :style="{ fontFamily: fontFamilyCss(font.family) }"
+                        @click="selectFont(font)"
+                      >
+                        <span class="font-option-name">{{ font.displayName }}</span>
+                        <span class="font-option-flags">
+                          <em v-if="font.cjk">中</em>
+                          <em v-if="font.hasBold">粗</em>
+                          <em v-if="font.hasItalic">斜</em>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <label class="page-number-field">
+                <span>字号（像素）</span>
+                <div class="size-control">
+                  <input
+                    v-model.number="pageNumberSettings.sizePx"
+                    class="input size-input"
+                    type="number"
+                    :min="PAGE_NUMBER_MIN_SIZE"
+                    :max="PAGE_NUMBER_MAX_SIZE"
+                  />
+                  <input
+                    v-model.number="pageNumberSettings.sizePx"
+                    class="size-range"
+                    type="range"
+                    :min="PAGE_NUMBER_MIN_SIZE"
+                    :max="PAGE_NUMBER_MAX_SIZE"
+                  />
+                </div>
+              </label>
+
+              <label class="page-number-field">
+                <span>颜色</span>
+                <div class="color-control">
+                  <input v-model="pageNumberSettings.color" class="color-input" type="color" />
+                  <span class="color-hex">{{ pageNumberSettings.color.toUpperCase() }}</span>
+                </div>
+              </label>
+
+              <div class="page-number-field">
+                <span>方向</span>
+                <div class="segment">
+                  <button
+                    class="segment-btn"
+                    :class="{ 'is-active': pageNumberSettings.direction === 'horizontal' }"
+                    type="button"
+                    @click="setPageNumberDirection('horizontal')"
+                  >
+                    水平
+                  </button>
+                  <button
+                    class="segment-btn"
+                    :class="{ 'is-active': pageNumberSettings.direction === 'vertical' }"
+                    type="button"
+                    @click="setPageNumberDirection('vertical')"
+                  >
+                    垂直（自上而下）
+                  </button>
+                </div>
+              </div>
+
+              <div class="page-number-field">
+                <span>字形</span>
+                <div class="segment">
+                  <button
+                    class="segment-btn"
+                    :class="{ 'is-active': pageNumberSettings.bold }"
+                    type="button"
+                    :disabled="!currentFont?.hasBold"
+                    :title="currentFont?.hasBold ? '使用字体自带的粗体字形' : '该字体没有粗体字形'"
+                    @click="toggleBold"
+                  >
+                    粗体
+                  </button>
+                  <button
+                    class="segment-btn"
+                    :class="{ 'is-active': pageNumberSettings.italic }"
+                    type="button"
+                    :disabled="!currentFont?.hasItalic"
+                    :title="currentFont?.hasItalic ? '使用字体自带的斜体字形' : '该字体没有斜体字形'"
+                    @click="toggleItalic"
+                  >
+                    斜体
+                  </button>
+                </div>
+              </div>
+
+              <div class="page-number-actions">
+                <button class="btn btn-sm" type="button" @click="cancelPageNumber">取消</button>
+                <button
+                  class="btn btn-sm btn-primary"
+                  type="button"
+                  :disabled="processing || fontsLoading || !pageNumberSettings.family"
+                  @click="applyPageNumber"
+                >
+                  {{ processing ? '生成中…' : '确认插入' }}
+                </button>
               </div>
             </div>
           </div>
@@ -2568,6 +3049,272 @@ const handleAction = (action: EditAction): void => {
   color: var(--color-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 页码预览：位置与字号随图片缩放比例换算，仅用于显示，不参与最终合成 */
+.page-number-preview {
+  position: absolute;
+  z-index: 10;
+  line-height: 1.1;
+  white-space: pre;
+  pointer-events: none;
+  transform-origin: center center;
+}
+
+.page-number-anchor {
+  position: absolute;
+  z-index: 12;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 1px solid rgba(37, 99, 235, 0.9);
+  border-radius: 50%;
+  background-color: rgba(37, 99, 235, 0.18);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  pointer-events: none;
+}
+
+.page-number-card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 288px;
+  max-height: calc(100% - 24px);
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  box-shadow: 0 16px 36px -18px rgba(15, 23, 42, 0.5);
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+
+.page-number-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-text-1);
+  font-size: 13px;
+}
+
+.page-number-tip {
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.page-number-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.page-number-field > span {
+  color: var(--color-text-2);
+  font-size: 11px;
+}
+
+.font-select {
+  position: relative;
+}
+
+.font-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text-1);
+  font-size: 13px;
+  text-align: left;
+}
+
+.font-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.font-trigger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-trigger-arrow {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-style: normal;
+  color: var(--color-text-3);
+}
+
+.font-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-soft);
+}
+
+.font-search {
+  height: 28px;
+  font-size: 12px;
+}
+
+.font-empty {
+  padding: 10px 4px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  text-align: center;
+}
+
+.font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.font-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--color-text-1);
+  font-size: 14px;
+  text-align: left;
+}
+
+.font-option:hover {
+  background-color: var(--color-surface-soft);
+}
+
+.font-option.is-selected {
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.font-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-flags {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+.font-option-flags em {
+  padding: 0 3px;
+  border-radius: 3px;
+  background-color: var(--color-surface-soft);
+  color: var(--color-text-3);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 15px;
+}
+
+.size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.size-input {
+  width: 68px;
+  height: 28px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.size-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--color-primary);
+}
+
+.color-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-input {
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.color-hex {
+  color: var(--color-text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.segment {
+  display: flex;
+  gap: 6px;
+}
+
+.segment-btn {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.segment-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.segment-btn.is-active {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.segment-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.page-number-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .nav-arrow {

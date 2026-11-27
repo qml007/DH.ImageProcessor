@@ -9,6 +9,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/dh.png?asset'
 import { buildPdfFromDataUrls } from './pdf'
 import { writeArchivesExcel } from './excel'
+import { listSystemFonts } from './fonts'
+import { composePageNumber, type ComposePageNumberPayload } from './pageNumber'
 import { recognizeDataUrl, recognizeImageWithCache, shutdownOcrWorker } from './ocr'
 import { testAiConnection } from './ai/testConnection'
 import { streamChatCompletion, type AiChatMessageInput } from './ai/chat'
@@ -2135,6 +2137,22 @@ app.whenReady().then(() => {
       console.error('Failed to read image bit depth:', error)
       return { ok: false, message: '读取图像位深度失败' }
     }
+  })
+
+  // 枚举系统可用字体（按字体族聚合，含中文名与字形能力位）
+  ipcMain.handle('font:list', async (_event, payload?: { refresh?: boolean }) => {
+    try {
+      const list = await listSystemFonts(!!payload?.refresh)
+      return { ok: true, families: list.families, defaultId: list.defaultId }
+    } catch (error) {
+      console.error('Failed to list system fonts:', error)
+      return { ok: false, message: '读取系统字体失败' }
+    }
+  })
+
+  // 在图片上合成页码
+  ipcMain.handle('image:compose-page-number', async (_event, payload: ComposePageNumberPayload) => {
+    return composePageNumber(payload)
   })
 
   createWindow()

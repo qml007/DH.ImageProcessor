@@ -90,6 +90,11 @@ export const HOTKEY_CATEGORIES: HotkeyCategory[] = [
         key: 'sharpen',
         label: '锐化',
         desc: '加黑并锐化图片中的文字'
+      },
+      {
+        key: 'page-number',
+        label: '插入页码',
+        desc: '在图片任意位置添加自定义页码'
       }
     ]
   }

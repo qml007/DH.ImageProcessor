@@ -22,6 +22,9 @@ const api = {
     ipcRenderer.invoke('image:bit-depth', payload),
   cleanImageBorder: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:clean-border', payload),
+  listSystemFonts: (payload?: unknown): Promise<unknown> => ipcRenderer.invoke('font:list', payload),
+  composePageNumber: (payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('image:compose-page-number', payload),
   deleteTempImages: (payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke('image:delete-temp', payload),
   selectPdfFolder: (): Promise<unknown> => ipcRenderer.invoke('pdf:select-folder'),
