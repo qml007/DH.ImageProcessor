@@ -15,7 +15,7 @@ import { useRoute, useRouter } from 'vue-router'
 import hotkeys from 'hotkeys-js'
 import { imageStore, type EditableImage } from '../stores/imageStore'
 import { hotkeyStore } from '../stores/hotkeyStore'
-import { IMG_PROC_CATEGORY, acceleratorToHotkeysJs } from '../utils/hotkeys'
+import { IMG_PROC_CATEGORY, acceleratorToHotkeysJs, formatAccelerator } from '../utils/hotkeys'
 import { formatSize } from '../utils/format'
 import { markTabReplace } from '../utils/tabs'
 import {
@@ -1060,6 +1060,10 @@ const HOTKEY_SCOPE = 'image-edit'
 
 const hotkeysActive = ref(false)
 
+/** 该按钮已配置的快捷键（未配置返回空字符串，tooltip 中不显示） */
+const hotkeyTip = (actionKey: string): string =>
+  formatAccelerator(hotkeyStore.bindingsOf(IMG_PROC_CATEGORY)[actionKey])
+
 const registerActionHotkeys = (): void => {
   hotkeys.deleteScope(HOTKEY_SCOPE, HOTKEY_SCOPE)
 
@@ -1835,6 +1839,9 @@ const handleAction = (action: EditAction): void => {
               <span class="action-tip">
                 <strong>{{ action.label }}</strong>
                 <em>{{ actionDesc(action) }}</em>
+                <span v-if="hotkeyTip(action.key)" class="action-tip-key">
+                  {{ hotkeyTip(action.key) }}
+                </span>
               </span>
             </button>
           </div>
@@ -2881,6 +2888,18 @@ const handleAction = (action: EditAction): void => {
   font-size: 11px;
   font-style: normal;
   opacity: 0.75;
+}
+
+.action-tip-key {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
 .action-btn:first-child .action-tip {

@@ -314,7 +314,9 @@ export const imageStore = {
     return archive
   },
 
+  /** 删除指定档案：先收集并清理其图像临时文件与缓存，再删除档案记录并同步内存状态；返回是否删除成功 */
   async removeArchive(id: string): Promise<boolean> {
+    // 档案不存在时直接返回失败
     if (!state.archives.some((item) => item.id === id)) return false
 
     // 收集该档案全部图像的临时文件路径（含未加载到内存的部分）
@@ -322,6 +324,7 @@ export const imageStore = {
     try {
       const imageRows = await window.api.listArcImage({ arcId: id })
       for (const row of imageRows.items ?? []) {
+        // 清除该图像的内容缓存
         dataUrlCache.delete(row.imageId)
         const history = await window.api.listArcImageHistory({ imageId: row.imageId })
         for (const item of history.items ?? []) {
@@ -332,18 +335,22 @@ export const imageStore = {
       // 收集失败不阻塞删除
     }
 
+    // 删除数据库中的档案记录，失败则中止后续清理
     const result = await window.api.deleteArcInfo({ arcId: id })
     if (!result.ok) return false
 
+    // 删除收集到的临时文件
     if (tempPaths.length) {
       await window.api.deleteTempImages({ paths: tempPaths })
     }
 
+    // 同步内存状态：移除档案、其下图像、计数与加载标记
     state.archives = state.archives.filter((item) => item.id !== id)
     state.images = state.images.filter((item) => item.arcId !== id)
     delete state.archiveCounts[id]
     loadedArchives.delete(id)
 
+    // 若删除的是当前档案，则切换到剩余的第一个档案并重新加载其图像
     if (state.activeArchiveId === id) {
       state.activeArchiveId = state.archives[0]?.id ?? ''
       if (state.activeArchiveId) {
@@ -586,19 +593,25 @@ export const imageStore = {
     target.historyIndex = index
   },
 
+  /** 删除指定图像：先清理持久化数据与临时文件，再同步内存中的列表、档案计数与缓存 */
   async remove(id: string): Promise<void> {
     const target = state.images.find((item) => item.id === id)
+    // 图像不在当前列表中时直接返回
     if (!target) return
 
+    // 删除数据库中的图像记录
     await window.api.deleteArcImage({ imageId: id })
 
+    // 删除该图像历史版本对应的全部临时文件
     const paths = target.history.map((item) => item.tempPath)
     if (paths.length) {
       await window.api.deleteTempImages({ paths })
     }
 
+    // 从列表中移除，并同步扣减所属档案的图像数量
     state.images = state.images.filter((item) => item.id !== id)
     state.archiveCounts[target.arcId] = Math.max((state.archiveCounts[target.arcId] ?? 1) - 1, 0)
+    // 清理图像内容缓存，避免残留旧数据
     dataUrlCache.delete(id)
   },
 
